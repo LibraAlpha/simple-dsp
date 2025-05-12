@@ -1,0 +1,35 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/vendor/
+/bin/
+
+# Temp files
+*.log
+*.tmp
+.DS_Store
+
+# Config files
+/configs/local/
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Build
+/build/
+/dist/
+
+# Debug
+debug
+__debug_bin 

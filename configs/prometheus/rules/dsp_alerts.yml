@@ -1,0 +1,97 @@
+groups:
+- name: dsp_alerts
+  rules:
+  # 竞价相关告警
+  - alert: HighBidErrorRate
+    expr: rate(dsp_bid_errors_total[5m]) / rate(dsp_bid_requests_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "竞价错误率过高"
+      description: "最近5分钟竞价错误率超过10%"
+
+  - alert: HighBidLatency
+    expr: histogram_quantile(0.95, rate(dsp_bid_latency_seconds_bucket[5m])) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "竞价延迟过高"
+      description: "最近5分钟95%竞价延迟超过100ms"
+
+  # 频次控制相关告警
+  - alert: HighFrequencyLimitRate
+    expr: rate(dsp_frequency_limit_exceeded_total[5m]) / rate(dsp_frequency_check_total[5m]) > 0.2
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "频次限制触发率过高"
+      description: "最近5分钟频次限制触发率超过20%"
+
+  - alert: HighFrequencyCheckLatency
+    expr: histogram_quantile(0.95, rate(dsp_frequency_check_duration_seconds_bucket[5m])) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "频次检查延迟过高"
+      description: "最近5分钟95%频次检查延迟超过50ms"
+
+  # 素材管理相关告警
+  - alert: HighCreativeUploadErrorRate
+    expr: rate(dsp_storage_upload_errors_total[5m]) / rate(dsp_storage_upload_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "素材上传错误率过高"
+      description: "最近5分钟素材上传错误率超过10%"
+
+  - alert: HighCreativeUploadLatency
+    expr: histogram_quantile(0.95, rate(dsp_storage_upload_latency_seconds_bucket[5m])) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "素材上传延迟过高"
+      description: "最近5分钟95%素材上传延迟超过10秒"
+
+  - alert: HighCreativeAuditRejectRate
+    expr: rate(dsp_creative_audit_rejected_total[1h]) / rate(dsp_creative_audit_total[1h]) > 0.3
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "素材审核拒绝率过高"
+      description: "最近1小时素材审核拒绝率超过30%"
+
+  # 缓存相关告警
+  - alert: LowCacheHitRate
+    expr: rate(dsp_cache_hits_total[5m]) / (rate(dsp_cache_hits_total[5m]) + rate(dsp_cache_misses_total[5m])) < 0.8
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "缓存命中率过低"
+      description: "最近15分钟缓存命中率低于80%"
+
+  - alert: HighCacheErrorRate
+    expr: rate(dsp_cache_errors_total[5m]) / (rate(dsp_cache_hits_total[5m]) + rate(dsp_cache_misses_total[5m])) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "缓存错误率过高"
+      description: "最近5分钟缓存错误率超过5%"
+
+  # 存储相关告警
+  - alert: HighStorageErrorRate
+    expr: (rate(dsp_storage_upload_errors_total[5m]) + rate(dsp_storage_delete_errors_total[5m])) / (rate(dsp_storage_upload_total[5m]) + rate(dsp_storage_delete_total[5m])) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "存储操作错误率过高"
+      description: "最近5分钟存储操作错误率超过10%" 

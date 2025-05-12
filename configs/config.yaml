@@ -1,0 +1,94 @@
+server:
+  port: 8080
+  mode: release
+  read_timeout: 5s
+  write_timeout: 10s
+  max_header_bytes: 1048576
+  shutdown_timeout: 30s
+
+database:
+  dsn: "user:password@tcp(localhost:3306)/dsp?charset=utf8mb4"
+  max_open_conn: 100
+  max_idle_conn: 20
+  max_lifetime: 300
+
+redis:
+  addresses:
+    - "redis-1:6379"
+    - "redis-2:6379"
+  password: "your-redis-password"
+  db: 0
+  pool_size: 100
+  min_idle_conns: 10
+  max_retries: 3
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+kafka:
+  brokers:
+    - "kafka-1:9092"
+    - "kafka-2:9092"
+  group_id: "dsp-group"
+  version: "2.8.0"
+  max_retries: 3
+  retry_backoff: 100ms
+
+traffic:
+  qps: 1000
+  burst: 2000
+  rta_timeout: 100ms
+  bid_timeout: 200ms
+  max_ad_slots: 10
+  min_ad_slot_size: 100
+  max_ad_slot_size: 1920
+
+rta:
+  base_url: "http://rta-service:8080"
+  timeout: 100ms
+  retry_times: 3
+  retry_delay: 50ms
+  cache_ttl: 5m
+  batch_size: 100
+
+bidding:
+  max_concurrent_bids: 100
+  bid_timeout: 200ms
+  min_bid_price: 0.01
+  max_bid_price: 100.0
+  ctr_model_path: "/models/ctr_model"
+
+budget:
+  check_interval: 1m
+  warning_threshold: 0.8
+  auto_renewal: true
+  renewal_time: "00:00:00"
+
+stats:
+  kafka_topics:
+    impression: "dsp.events.impression"
+    click: "dsp.events.click"
+    conversion: "dsp.events.conversion"
+  redis_prefix: "dsp:stats:"
+  flush_interval: 1m
+  retention_days: 30
+
+event:
+  max_retries: 3
+  retry_delay: 100ms
+  process_timeout: 500ms
+  queue_size: 10000
+
+log:
+  level: "info"
+  filename: "logs/dsp.log"
+  max_size: 100
+  max_backups: 10
+  max_age: 30
+  compress: true
+
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  push_gateway: "http://pushgateway:9091"
