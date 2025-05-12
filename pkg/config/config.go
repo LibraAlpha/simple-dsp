@@ -1,10 +1,15 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/spf13/viper"
+	"github.com/your-project/logger"
 )
 
 // Config 全局配置结构
@@ -189,4 +194,145 @@ func validateConfig(cfg *Config) error {
 // GetConfig 获取全局配置
 func GetConfig() *Config {
 	return &GlobalConfig
+}
+
+// DynamicConfig 动态配置管理器
+type DynamicConfig struct {
+	redis   *redis.Client
+	logger  *logger.Logger
+	configs map[string]interface{}
+	mu      sync.RWMutex
+}
+
+// NewDynamicConfig 创建动态配置管理器
+func NewDynamicConfig(redis *redis.Client, logger *logger.Logger) *DynamicConfig {
+	dc := &DynamicConfig{
+		redis:   redis,
+		logger:  logger,
+		configs: make(map[string]interface{}),
+	}
+
+	// 启动配置监听
+	go dc.watchConfigChanges()
+	return dc
+}
+
+// Get 获取配置值
+func (dc *DynamicConfig) Get(key string) interface{} {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if value, ok := dc.configs[key]; ok {
+		return value
+	}
+
+	// 如果内存中没有，尝试从Redis获取
+	if value, err := dc.loadFromRedis(key); err == nil {
+		dc.configs[key] = value
+		return value
+	}
+
+	// 返回默认配置
+	return dc.getDefaultConfig(key)
+}
+
+// Set 设置配置值
+func (dc *DynamicConfig) Set(key string, value interface{}) error {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	// 保存到Redis
+	if err := dc.saveToRedis(key, value); err != nil {
+		return err
+	}
+
+	// 更新内存中的值
+	dc.configs[key] = value
+	return nil
+}
+
+// watchConfigChanges 监听配置变更
+func (dc *DynamicConfig) watchConfigChanges() {
+	pubsub := dc.redis.Subscribe(context.Background(), "config_changes")
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+	for msg := range ch {
+		var event struct {
+			Type string          `json:"type"`
+			Data map[string]interface{} `json:"data"`
+		}
+
+		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
+			dc.logger.Error("解析配置变更事件失败", "error", err)
+			continue
+		}
+
+		dc.mu.Lock()
+		switch event.Type {
+		case "config_updated":
+			if item, ok := event.Data["key"].(string); ok {
+				if value, err := dc.loadFromRedis(item); err == nil {
+					dc.configs[item] = value
+				}
+			}
+		case "config_deleted":
+			if item, ok := event.Data["key"].(string); ok {
+				delete(dc.configs, item)
+			}
+		}
+		dc.mu.Unlock()
+	}
+}
+
+// loadFromRedis 从Redis加载配置
+func (dc *DynamicConfig) loadFromRedis(key string) (interface{}, error) {
+	data, err := dc.redis.Get(context.Background(), "config:"+key).Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	var item struct {
+		Value interface{} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &item); err != nil {
+		return nil, err
+	}
+
+	return item.Value, nil
+}
+
+// saveToRedis 保存配置到Redis
+func (dc *DynamicConfig) saveToRedis(key string, value interface{}) error {
+	data, err := json.Marshal(map[string]interface{}{
+		"key":   key,
+		"value": value,
+	})
+	if err != nil {
+		return err
+	}
+
+	return dc.redis.Set(context.Background(), "config:"+key, data, 0).Err()
+}
+
+// getDefaultConfig 获取默认配置
+func (dc *DynamicConfig) getDefaultConfig(key string) interface{} {
+	switch key {
+	case "server.port":
+		return 8080
+	case "server.read_timeout":
+		return time.Second * 5
+	case "server.write_timeout":
+		return time.Second * 10
+	case "redis.pool_size":
+		return 100
+	case "kafka.batch_size":
+		return 100
+	case "traffic.qps":
+		return 1000.0
+	case "bidding.max_concurrent_bids":
+		return 100
+	default:
+		return nil
+	}
 }

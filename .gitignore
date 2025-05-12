@@ -32,4 +32,30 @@ coverage.html
 
 # Debug
 debug
-__debug_bin 
+__debug_bin
+
+# 后端
+/bin
+/main
+*.exe
+*.log
+
+# 前端
+/web/node_modules
+/web/dist
+/web/.env.local
+/web/.env.*.local
+/web/npm-debug.log*
+/web/yarn-debug.log*
+/web/yarn-error.log*
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# 其他
+*.bak 

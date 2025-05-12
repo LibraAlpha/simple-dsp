@@ -42,29 +42,36 @@ func main() {
 	redisClient := initRedis(cfg.Redis)
 	defer redisClient.Close()
 
-	// 5. 初始化各个模块
-	// 5.1 初始化预算管理器
+	// 5. 初始化动态配置管理器
+	dynamicConfig := config.NewDynamicConfig(redisClient, log)
+
+	// 6. 初始化配置管理服务
+	configService := config.NewService(redisClient, log)
+	configHandler := admin.NewConfigHandler(configService)
+
+	// 7. 初始化各个模块
+	// 7.1 初始化预算管理器
 	budgetMgr := budget.NewManager(
 		redisClient,
 		log,
 		metrics,
 	)
 
-	// 5.2 初始化数据统计服务
+	// 7.2 初始化数据统计服务
 	statsService := stats.NewService(
 		redisClient,
 		log,
 		metrics,
 	)
 
-	// 5.3 初始化频次控制器
+	// 7.3 初始化频次控制器
 	freqCtrl := frequency.NewController(
 		redisClient,
 		log,
 		metrics,
 	)
 
-	// 5.4 初始化管理后台服务
+	// 7.4 初始化管理后台服务
 	adminService := admin.NewService(
 		budgetMgr,
 		statsService,
@@ -73,8 +80,8 @@ func main() {
 		freqCtrl,
 	)
 
-	// 6. 初始化HTTP服务器
-	router := initRouter(adminService)
+	// 8. 初始化HTTP服务器
+	router := initRouter(adminService, configHandler)
 	srv := &http.Server{
 		Addr:           fmt.Sprintf(":%d", cfg.Admin.Port),
 		Handler:        router,
@@ -83,7 +90,7 @@ func main() {
 		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
 	}
 
-	// 7. 启动服务器
+	// 9. 启动服务器
 	go func() {
 		log.Info("启动管理后台服务器", "port", cfg.Admin.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -91,7 +98,7 @@ func main() {
 		}
 	}()
 
-	// 8. 优雅关闭
+	// 10. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -189,54 +196,20 @@ func initRedis(cfg config.RedisConfig) *redis.Client {
 }
 
 // initRouter 初始化路由
-func initRouter(adminService *admin.Service) *gin.Engine {
+func initRouter(adminService *admin.Service, configHandler *admin.ConfigHandler) *gin.Engine {
 	router := gin.Default()
 
-	// API版本分组
-	v1 := router.Group("/api/v1")
+	// 注册配置管理路由
+	configHandler.RegisterRoutes(router)
+
+	// 注册管理后台路由
+	adminGroup := router.Group("/api/v1/admin")
 	{
-		// 广告管理
-		ads := v1.Group("/ads")
-		{
-			ads.POST("", adminService.CreateAd)
-			ads.PUT("/:id", adminService.UpdateAd)
-			ads.DELETE("/:id", adminService.DeleteAd)
-			ads.GET("/:id", adminService.GetAd)
-			ads.GET("", adminService.ListAds)
-		}
-
-		// 预算管理
-		budgets := v1.Group("/budgets")
-		{
-			budgets.POST("", adminService.CreateBudget)
-			budgets.PUT("/:id", adminService.UpdateBudget)
-			budgets.GET("/:id", adminService.GetBudget)
-			budgets.GET("", adminService.ListBudgets)
-			budgets.POST("/:id/renew", adminService.RenewBudget)
-		}
-
-		// 数据统计
-		stats := v1.Group("/stats")
-		{
-			stats.GET("/overview", adminService.GetStatsOverview)
-			stats.GET("/ads/:id", adminService.GetAdStats)
-			stats.GET("/budgets/:id", adminService.GetBudgetStats)
-			stats.GET("/daily", adminService.GetDailyStats)
-			stats.GET("/hourly", adminService.GetHourlyStats)
-		}
-
-		// 系统管理
-		system := v1.Group("/system")
-		{
-			system.GET("/status", adminService.GetSystemStatus)
-			system.GET("/metrics", adminService.GetSystemMetrics)
-		}
+		adminGroup.GET("/stats/daily", adminService.GetDailyStats)
+		adminGroup.GET("/stats/hourly", adminService.GetHourlyStats)
+		adminGroup.GET("/system/status", adminService.GetSystemStatus)
+		adminGroup.GET("/system/metrics", adminService.GetSystemMetrics)
 	}
-
-	// 健康检查接口
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
 
 	return router
 }
