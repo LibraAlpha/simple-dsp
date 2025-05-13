@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package dsp.v1;
+
+option go_package = "simple-dsp/api/proto/dsp/v1;dspv1";
+
+// 广告请求服务
+service BidService {
+  // 处理广告请求
+  rpc ProcessBid(BidRequest) returns (BidResponse) {}
+}
+
+// 广告请求
+message BidRequest {
+  string request_id = 1;  // 请求ID
+  string user_id = 2;     // 用户ID
+  string device_id = 3;   // 设备ID
+  string ip = 4;          // IP地址
+  repeated AdSlot ad_slots = 5;  // 广告位列表
+  DeviceInfo device = 6;   // 设备信息
+  UserInfo user = 7;       // 用户信息
+  string version = 8;      // 协议版本
+}
+
+// 广告位信息
+message AdSlot {
+  string slot_id = 1;     // 广告位ID
+  int32 width = 2;        // 宽度
+  int32 height = 3;       // 高度
+  double min_price = 4;   // 最低价格
+  double max_price = 5;   // 最高价格
+  string position = 6;    // 位置
+  string ad_type = 7;     // 广告类型
+  string bid_type = 8;    // 计费类型(CPC/CPM)
+  repeated string supported_creative_types = 9;  // 支持的创意类型
+}
+
+// 设备信息
+message DeviceInfo {
+  string os = 1;          // 操作系统
+  string os_version = 2;  // 系统版本
+  string brand = 3;       // 品牌
+  string model = 4;       // 型号
+  string screen_size = 5; // 屏幕尺寸
+  string carrier = 6;     // 运营商
+  string connection = 7;  // 网络连接类型
+  string idfa = 8;       // iOS广告标识符
+  string imei = 9;       // 安卓设备标识符
+  string oaid = 10;      // 安卓广告标识符
+}
+
+// 用户信息
+message UserInfo {
+  string age = 1;        // 年龄段
+  string gender = 2;     // 性别
+  repeated string tags = 3;  // 用户标签
+  repeated string interests = 4;  // 兴趣爱好
+  string location = 5;   // 地理位置
+}
+
+// 广告响应
+message BidResponse {
+  string request_id = 1;   // 请求ID
+  repeated AdResponse ads = 2;  // 广告响应列表
+  string version = 3;      // 协议版本
+}
+
+// 单个广告响应
+message AdResponse {
+  string slot_id = 1;     // 广告位ID
+  string ad_id = 2;       // 广告ID
+  double bid_price = 3;   // 出价
+  string bid_type = 4;    // 计费类型
+  string creative_type = 5;  // 创意类型
+  string ad_markup = 6;    // 广告标记
+  string landing_url = 7;  // 落地页URL
+  string win_notice = 8;   // 竞价获胜通知URL
+  string click_notice = 9; // 点击通知URL
+  repeated string imp_notice = 10;  // 展示通知URL列表
+  map<string, string> ext = 11;  // 扩展字段
+} 

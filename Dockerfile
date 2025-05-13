@@ -4,7 +4,11 @@ FROM golang:1.19-alpine AS builder
 WORKDIR /app
 
 # 安装依赖
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev protoc make
+
+# 安装 protoc 插件
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # 复制 go.mod 和 go.sum
 COPY go.mod go.sum ./
@@ -12,6 +16,9 @@ RUN go mod download
 
 # 复制源代码
 COPY . .
+
+# 生成 protobuf 代码
+RUN make proto
 
 # 构建应用
 RUN CGO_ENABLED=1 GOOS=linux go build -a -o main ./cmd/server
@@ -31,6 +38,7 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /app/main .
 COPY --from=builder /app/configs ./configs
 
-EXPOSE 8080
+# 暴露 HTTP 和 gRPC 端口
+EXPOSE 8080 9090
 
 CMD ["./main"]
