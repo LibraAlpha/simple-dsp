@@ -1,6 +1,39 @@
-# version: '3.8'
+version: '3.8'
 
 services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:14-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: simple_dsp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # Redis 缓存
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
   # DSP 应用服务
   app:
     build: 
@@ -8,43 +41,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-      - "9090:9090"
     environment:
-      - MYSQL_HOST=mysql
-      - MYSQL_PORT=3306
-      - MYSQL_USER=dsp
-      - MYSQL_PASSWORD=dsp123456
-      - MYSQL_DATABASE=simple_dsp
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: simple_dsp
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
-      - mysql
-      - redis
-    restart: always
-
-  # MySQL 数据库
-  mysql:
-    image: mysql:8.0
-    ports:
-      - "3306:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=root123456
-      - MYSQL_DATABASE=simple_dsp
-      - MYSQL_USER=dsp
-      - MYSQL_PASSWORD=dsp123456
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./migrations:/docker-entrypoint-initdb.d
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
-
-  # Redis 缓存
-  redis:
-    image: redis:6.2
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: always
 
   # 前端服务
@@ -59,5 +68,5 @@ services:
     restart: always
 
 volumes:
-  mysql_data:
+  postgres_data:
   redis_data: 

@@ -1,177 +1,172 @@
-# Simple DSP (需求方平台)
+# Simple DSP 系统
 
-一个简单的广告需求方平台(DSP)实现，支持 CPC 和 CPM 双计费模式。
+这是一个简单的DSP（需求方平台）系统，支持RTA对接和广告计划跟踪功能。
 
-## 功能特点
+## 系统要求
 
-- 支持 CPC(按点击付费)和 CPM(按千次展示付费)双计费模式
-- 出价策略管理
-  - 支持创建时锁定计费类型
-  - 支持出价锁定功能
-  - 支持多素材关联
-- 完整的预算控制
-- 实时竞价引擎
-- 详细的数据统计
-
-## 技术栈
-
-### 后端
-- Go 1.19
-- MySQL 8.0
-- Redis 6.2
-- 依赖管理: Go Modules
-
-### 前端
-- Vue 3
-- Element Plus
-- Vite
-- Pinia 状态管理
+- PostgreSQL 14+
+- Redis 6+
+- Go 1.19+
 
 ## 快速开始
 
-### 使用 Docker Compose 部署
+### 1. 使用Docker Compose（推荐）
 
-1. 克隆项目
 ```bash
-git clone https://github.com/yourusername/simple-dsp.git
-cd simple-dsp
-```
-
-2. 启动服务
-```bash
+# 启动所有服务
 docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看应用日志
+docker-compose logs -f app
 ```
 
-服务将在以下端口启动:
-- 前端界面: http://localhost
-- 后端 API: http://localhost:8080
-- MySQL: localhost:3306
-- Redis: localhost:6379
+### 2. 手动安装
 
-### 手动部署
+确保您的系统已安装以下工具：
+- PostgreSQL 14+ 和客户端 (`psql`)
+- Redis 6+ 和客户端 (`redis-cli`)
+- Go 1.19 或更高版本
 
-1. 后端服务
+配置环境变量：
+
 ```bash
-# 安装依赖
-go mod download
+# 数据库配置
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_USER=postgres
+export DB_PASSWORD=postgres
+export DB_NAME=simple_dsp
 
-# 编译
-go build -o main ./cmd/server
-
-# 运行
-./main
+# Redis配置
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+export REDIS_PASSWORD=""
 ```
 
-2. 前端服务
+### 3. 初始化系统
+
+如果使用Docker Compose，初始化会自动完成。
+手动安装时，运行初始化脚本：
+
 ```bash
-cd web
-
-# 安装依赖
-npm install
-
-# 开发模式
-npm run dev
-
-# 构建
-npm run build
+chmod +x scripts/init.sh
+./scripts/init.sh
 ```
 
-## 项目结构
+这个脚本会：
+- 创建必要的数据库和表
+- 初始化Redis配置
+- 插入测试数据
+
+### 4. 启动服务
+
+使用Docker Compose时服务会自动启动。
+手动启动：
+
+```bash
+go run cmd/main.go
+```
+
+## 系统功能
+
+### RTA对接
+- 支持单次和批量请求/响应
+- 超时控制和重试机制
+- 动态配置管理
+- Mock服务器用于测试
+
+### 广告计划跟踪
+- 支持三种跟踪类型：DP、点击检测和曝光检测
+- 计划级别的动态配置
+- 使用JSONB存储跟踪配置
+- HTTP接口管理
+- 事件处理和监控
+
+## 目录结构
 
 ```
 .
-├── cmd/                    # 入口程序
-├── internal/              # 内部包
-│   ├── bidding/          # 竞价相关
-│   ├── budget/           # 预算控制
-│   └── frequency/        # 频次控制
-├── pkg/                   # 公共包
-├── web/                   # 前端代码
-│   ├── src/              # 源代码
-│   └── public/           # 静态资源
-├── migrations/           # 数据库迁移
-├── configs/              # 配置文件
-└── docker-compose.yml    # Docker 编排配置
+├── cmd/                # 主程序入口
+├── internal/          
+│   ├── campaign/      # 广告计划相关
+│   ├── models/        # 数据库模型
+│   ├── handlers/      # HTTP处理器
+│   ├── rta/           # RTA相关实现
+│   └── tracking/      # 跟踪服务
+├── migrations/        # 数据库迁移文件
+├── scripts/          # 脚本文件
+├── Dockerfile        # Docker构建文件
+├── docker-compose.yml # Docker编排配置
+└── test/             # 测试用例和文档
 ```
 
 ## 数据库设计
 
-### bid_strategies 表
+### advertisers 表
 ```sql
-CREATE TABLE bid_strategies (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(50) NOT NULL COMMENT '策略名称',
-    bid_type ENUM('CPC', 'CPM') NOT NULL COMMENT '计费类型',
-    price DECIMAL(10,4) NOT NULL COMMENT '出价，CPC单位为元，CPM单位为分',
-    daily_budget DECIMAL(10,2) NOT NULL COMMENT '日预算，单位为元',
-    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
-    is_price_locked TINYINT NOT NULL DEFAULT 1 COMMENT '出价是否锁定：0-未锁定，1-锁定',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE TABLE advertisers (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    budget DECIMAL(20,4) NOT NULL,
+    create_time TIMESTAMP NOT NULL,
+    update_time TIMESTAMP NOT NULL
 );
 ```
 
-### bid_strategy_creatives 表
+### campaigns 表
 ```sql
-CREATE TABLE bid_strategy_creatives (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    strategy_id BIGINT NOT NULL COMMENT '策略ID',
-    creative_id BIGINT NOT NULL COMMENT '素材ID',
-    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (strategy_id) REFERENCES bid_strategies(id) ON DELETE CASCADE
+CREATE TABLE campaigns (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    advertiser_id VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    budget DECIMAL(20,4) NOT NULL,
+    bid_strategy VARCHAR(32) NOT NULL,
+    targeting JSONB,
+    tracking_configs JSONB,
+    update_time TIMESTAMP NOT NULL,
+    create_time TIMESTAMP NOT NULL,
+    
+    CONSTRAINT fk_campaigns_advertiser 
+        FOREIGN KEY (advertiser_id) 
+        REFERENCES advertisers (id) 
+        ON DELETE CASCADE
 );
 ```
 
-## API 文档
+## API文档
 
-### 出价策略管理
+### 广告计划管理
 
-#### 获取策略列表
-```
-GET /api/v1/bids
-```
+- `POST /api/v1/campaigns` - 创建广告计划
+- `GET /api/v1/campaigns` - 获取广告计划列表
+- `GET /api/v1/campaigns/:id` - 获取单个广告计划
+- `PUT /api/v1/campaigns/:id` - 更新广告计划
+- `DELETE /api/v1/campaigns/:id` - 删除广告计划
+- `PUT /api/v1/campaigns/:id/tracking` - 更新跟踪配置
 
-#### 创建策略
-```
-POST /api/v1/bids
-```
+## 测试数据
 
-#### 更新策略
-```
-PUT /api/v1/bids/:id
-```
+初始化脚本会创建以下测试数据：
 
-#### 删除策略
-```
-DELETE /api/v1/bids/:id
-```
+### 广告主
+- ID: adv_001, 名称: 测试广告主1
+- ID: adv_002, 名称: 测试广告主2
 
-### 素材管理
+### 广告计划
+- ID: camp_001, 名称: 测试广告计划1 (CPC)
+- ID: camp_002, 名称: 测试广告计划2 (CPM)
 
-#### 添加素材
-```
-POST /api/v1/bids/:id/creatives
-```
+## 贡献指南
 
-#### 移除素材
-```
-DELETE /api/v1/bids/:id/creatives/:creativeId
-```
-
-### 统计数据
-
-#### 获取策略统计
-```
-GET /api/v1/bids/:id/stats
-```
-
-## 开发团队
-
-- 后端开发: [Your Name]
-- 前端开发: [Your Name]
-
-## 许可证
-
-MIT License 
+1. Fork 项目
+2. 创建特性分支
+3. 提交更改
+4. 推送到分支
+5. 创建 Pull Request 
