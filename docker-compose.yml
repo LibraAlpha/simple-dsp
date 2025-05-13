@@ -22,7 +22,7 @@ services:
 
   # Redis 缓存
   redis:
-    image: redis:6.0-alpine
+    image: redis:6.2-alpine
     ports:
       - "6379:6379"
     volumes:
@@ -39,6 +39,10 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
+      args:
+        ALPINE_MIRROR: mirrors.aliyun.com
+        POSTGRES_VERSION: 13.9-r0
+        REDIS_VERSION: 6.2.7-r0
     ports:
       - "8080:8080"
     environment:
