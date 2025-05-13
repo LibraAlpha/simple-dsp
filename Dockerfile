@@ -15,7 +15,11 @@ ENV GOPROXY=https://goproxy.cn,direct
 
 # 配置镜像源并安装构建依赖
 RUN sed -i "s/dl-cdn.alpinelinux.org/${ALPINE_MIRROR}/g" /etc/apk/repositories && \
-    apk add --no-cache gcc musl-dev postgresql-dev
+    apk add --no-cache gcc musl-dev && \
+    # 尝试安装指定版本的postgresql-dev，如果失败则安装最新版本
+    (apk add --no-cache "postgresql-dev~=${POSTGRES_VERSION%%-*}" || \
+     (echo "指定版本不存在，将安装最新版本的postgresql-dev" && \
+      apk add --no-cache postgresql-dev))
 
 # 处理依赖
 COPY go.mod go.sum ./
@@ -44,11 +48,19 @@ ENV TZ=Asia/Shanghai \
 
 # 配置镜像源并安装运行时依赖
 RUN sed -i "s/dl-cdn.alpinelinux.org/${ALPINE_MIRROR}/g" /etc/apk/repositories && \
-    apk add --no-cache \
-        tzdata \
-        ca-certificates \
-        postgresql-client=${POSTGRES_VERSION} \
-        redis=${REDIS_VERSION}
+    # 安装基础包
+    apk add --no-cache tzdata ca-certificates && \
+    # 尝试安装指定版本的postgresql-client，如果失败则安装最新版本
+    (apk add --no-cache "postgresql-client~=${POSTGRES_VERSION%%-*}" || \
+     (echo "指定版本不存在，将安装最新版本的postgresql-client" && \
+      apk add --no-cache postgresql-client)) && \
+    # 尝试安装指定版本的redis，如果失败则安装最新版本
+    (apk add --no-cache "redis~=${REDIS_VERSION%%-*}" || \
+     (echo "指定版本不存在，将安装最新版本的redis" && \
+      apk add --no-cache redis)) && \
+    # 打印安装的版本信息
+    echo "Installed versions:" && \
+    apk info -v postgresql-client redis
 
 # 复制应用文件
 COPY --from=builder /app/main .
