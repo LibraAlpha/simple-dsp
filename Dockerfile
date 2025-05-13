@@ -1,10 +1,21 @@
 # 构建阶段
-FROM golang:1.19-alpine AS builder
+FROM golang:1.19-alpine3.16 AS builder
 
 WORKDIR /app
 
+# 设置Go模块代理
+ENV GOPROXY=https://goproxy.cn,direct
+
+# 设置Alpine镜像源为阿里云
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # 安装依赖
-RUN apk add --no-cache gcc musl-dev postgresql-client postgresql-dev
+RUN apk update && \
+    apk add --no-cache \
+    gcc \
+    musl-dev \
+    postgresql-client=13.9-r0 \
+    postgresql-dev=13.9-r0
 
 # 安装 protoc 插件
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
@@ -24,12 +35,18 @@ RUN make proto
 RUN CGO_ENABLED=1 GOOS=linux go build -a -o main ./cmd/main.go
 
 # 运行阶段
-FROM alpine:3.14
+FROM alpine:3.16
 
 WORKDIR /app
 
-# 安装必要的运行时依赖
-RUN apk add --no-cache ca-certificates tzdata postgresql-client redis
+# 设置Alpine镜像源为阿里云
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    postgresql-client=13.9-r0 \
+    redis=6.2.7-r0
 
 # 设置时区
 ENV TZ=Asia/Shanghai
