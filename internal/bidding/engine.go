@@ -2,47 +2,13 @@ package bidding
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"strings"
-	"sync"
-	"time"
-	"simple-dsp/internal/frequency"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+	"sort"
+	"sync"
+	"time"
 )
-
-// BidRequest 竞价请求
-type BidRequest struct {
-	RequestID string   `json:"request_id"`
-	UserID    string   `json:"user_id"`
-	DeviceID  string   `json:"device_id"`
-	IP        string   `json:"ip"`
-	AdSlots   []AdSlot `json:"ad_slots"`
-}
-
-// AdSlot 广告位信息
-type AdSlot struct {
-	SlotID    string  `json:"slot_id"`
-	Width     int     `json:"width"`
-	Height    int     `json:"height"`
-	MinPrice  float64 `json:"min_price"`
-	MaxPrice  float64 `json:"max_price"`
-	Position  string  `json:"position"`
-	AdType    string  `json:"ad_type"`
-	BidType   string  `json:"bid_type"`
-}
-
-// BidResponse 竞价响应
-type BidResponse struct {
-	SlotID    string  `json:"slot_id"`
-	AdID      string  `json:"ad_id"`
-	BidPrice  float64 `json:"bid_price"`
-	BidType   string  `json:"bid_type"`
-	AdMarkup  string  `json:"ad_markup"`
-	WinNotice string  `json:"win_notice"`
-}
 
 // Ad 广告信息
 type Ad struct {
@@ -122,171 +88,122 @@ func (e *Engine) ProcessBid(ctx context.Context, req BidRequest) (*BidResponse, 
 		return nil, ErrInvalidBidRequest
 	}
 
-	// 获取所有活跃的出价策略
-	strategies, err := e.repository.ListBidStrategies(ctx, BidStrategyFilter{
+	// 获取出价策略列表
+	strategies, err, _ := e.repository.ListBidStrategies(ctx, BidStrategyFilter{
 		Page:     1,
-		PageSize: 1000,
+		PageSize: 100,
 	})
 	if err != nil {
-		return nil, err
+		e.logger.Error("获取出价策略失败", "error", err)
+		return nil, fmt.Errorf("获取出价策略失败: %w", err)
 	}
 
-	// 并发安全设计
-	var wg sync.WaitGroup
-	resultChan := make(chan *BidCandidate, len(strategies))
+	// 如果没有可用的出价策略
+	if len(strategies) == 0 {
+		return nil, ErrNoAvailableAds
+	}
 
-	// 获取广告位
-	slot := req.AdSlots[0] // 简化处理，只处理第一个广告位
+	// 对每个广告位进行竞价
+	for _, slot := range req.AdSlots {
+		// 获取候选广告
+		candidates := e.getBidCandidates(ctx, req.UserID, slot, strategies)
+		if len(candidates) == 0 {
+			continue
+		}
 
-	// 并发处理每个出价策略
+		// 选择最优出价
+		winner := e.selectWinner(candidates)
+		if winner == nil {
+			continue
+		}
+
+		// 检查预算
+		ok, err := e.budgetMgr.CheckAndDeduct(ctx, winner.Strategy.ID, winner.BidPrice)
+		if err != nil {
+			e.logger.Error("检查预算失败", "error", err)
+			continue
+		}
+		if !ok {
+			e.logger.Warn("预算不足", "strategy_id", winner.Strategy.ID)
+			continue
+		}
+
+		// 检查频次
+		ok, err = e.freqCtrl.CheckImpression(ctx, req.UserID, winner.Strategy.ID)
+		if err != nil {
+			e.logger.Error("检查频次失败", "error", err)
+			continue
+		}
+		if !ok {
+			e.logger.Warn("频次超限", "strategy_id", winner.Strategy.ID)
+			continue
+		}
+
+		// 返回竞价响应
+		return &BidResponse{
+			SlotID:    slot.SlotID,
+			AdID:      winner.Strategy.ID,
+			BidPrice:  winner.BidPrice,
+			BidType:   winner.Strategy.BidType,
+			AdMarkup:  "", // TODO: 生成广告物料
+			WinNotice: "", // TODO: 生成获胜通知URL
+		}, nil
+	}
+
+	return nil, ErrNoAvailableAds
+}
+
+// getBidCandidates 获取竞价候选
+func (e *Engine) getBidCandidates(ctx context.Context, userID string, slot AdSlot, strategies []BidStrategy) []BidCandidate {
+	var candidates []BidCandidate
+
 	for _, strategy := range strategies {
+		// 检查策略状态
 		if strategy.Status != 1 {
 			continue
 		}
 
-		// 检查计费类型是否匹配
-		if !strings.Contains(slot.BidType, strategy.BidType) {
+		// 计算出价
+		bidPrice := e.calculateBidPrice(strategy, slot)
+		if bidPrice < slot.MinPrice || bidPrice > slot.MaxPrice {
 			continue
 		}
 
-		wg.Add(1)
-		go func(s BidStrategy) {
-			defer wg.Done()
-			// 异常捕获
-			defer func() {
-				if r := recover(); r != nil {
-					e.logger.Error("竞价处理异常",
-						"panic", r,
-						"strategy_id", s.ID,
-						"user_id", req.UserID)
-				}
-			}()
+		// 计算CTR
+		ctr := e.estimateCTR(strategy, userID, slot)
 
-			// 检查频次限制
-			ok, err := e.freqCtrl.CheckImpression(ctx, req.UserID, s.ID)
-			if err != nil || !ok {
-				e.logger.Info("频次限制",
-					"user_id", req.UserID,
-					"strategy_id", s.ID,
-					"error", err)
-				return
-			}
-
-			// 预测CTR
-			ctr := e.predictCTR(s, req.UserID)
-			if ctr <= 0 {
-				return
-			}
-
-			// 计算最终出价
-			bidPrice := e.calculateFinalBidPrice(s, ctr)
-			if bidPrice <= 0 {
-				return
-			}
-
-			// 检查出价范围
-			if bidPrice < slot.MinPrice || bidPrice > slot.MaxPrice {
-				return
-			}
-
-			// 检查预算
-			ok, err = e.budgetMgr.CheckAndDeduct(ctx, s.ID, bidPrice)
-			if err != nil || !ok {
-				return
-			}
-
-			resultChan <- &BidCandidate{
-				Strategy: s,
-				BidPrice: bidPrice,
-				CTR:      ctr,
-			}
-		}(strategy)
+		candidates = append(candidates, BidCandidate{
+			Strategy: strategy,
+			BidPrice: bidPrice,
+			CTR:      ctr,
+		})
 	}
 
-	// 等待所有候选处理完成
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
+	return candidates
+}
 
-	// 收集并排序结果
-	var candidates []*BidCandidate
-	for c := range resultChan {
-		candidates = append(candidates, c)
+// selectWinner 选择最优出价
+func (e *Engine) selectWinner(candidates []BidCandidate) *BidCandidate {
+	if len(candidates) == 0 {
+		return nil
 	}
+
+	// 按 eCPM 排序
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].BidPrice > candidates[j].BidPrice
+		return candidates[i].BidPrice*candidates[i].CTR > candidates[j].BidPrice*candidates[j].CTR
 	})
 
-	// 空结果处理
-	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAds
-	}
-
-	// 选择最高出价的策略
-	winner := candidates[0]
-
-	// 记录曝光频次
-	if err := e.freqCtrl.RecordImpression(ctx, req.UserID, winner.Strategy.ID); err != nil {
-		e.logger.Error("记录曝光频次失败",
-			"user_id", req.UserID,
-			"strategy_id", winner.Strategy.ID,
-			"error", err)
-	}
-
-	// 更新监控指标
-	e.metrics.BidPrice.WithLabelValues(winner.Strategy.BidType).Observe(winner.BidPrice)
-	e.metrics.WinPrice.WithLabelValues(winner.Strategy.BidType).Observe(winner.BidPrice)
-
-	return &BidResponse{
-		AdID:      fmt.Sprintf("%d", winner.Strategy.ID),
-		BidPrice:  winner.BidPrice,
-		BidType:   winner.Strategy.BidType,
-		AdMarkup:  e.renderAd(winner.Strategy),
-		WinNotice: e.generateWinNotice(winner.Strategy, winner.BidPrice),
-	}, nil
+	return &candidates[0]
 }
 
-// calculateFinalBidPrice 计算最终出价
-func (e *Engine) calculateFinalBidPrice(strategy BidStrategy, ctr float64) float64 {
-	switch strategy.BidType {
-	case "CPC":
-		// CPC出价 = 原始出价(元) * CTR
-		return strategy.Price * ctr
-	case "CPM":
-		// CPM出价 = 原始出价(分) / 1000
-		return strategy.Price / 1000
-	default:
-		return 0
-	}
+// calculateBidPrice 计算出价
+func (e *Engine) calculateBidPrice(strategy BidStrategy, slot AdSlot) float64 {
+	// TODO: 实现更复杂的出价逻辑
+	return strategy.Price
 }
 
-// predictCTR 预测点击率
-func (e *Engine) predictCTR(strategy BidStrategy, userID string) float64 {
-	// TODO: 实现CTR预测模型
-	// 这里使用简单的模拟实现
+// estimateCTR 预估点击率
+func (e *Engine) estimateCTR(strategy BidStrategy, userID string, slot AdSlot) float64 {
+	// TODO: 实现更复杂的CTR预估逻辑
 	return 0.01
 }
-
-// renderAd 渲染广告
-func (e *Engine) renderAd(strategy BidStrategy) string {
-	// TODO: 实现广告渲染逻辑
-	return fmt.Sprintf(`<div class="ad" data-strategy="%d">广告内容</div>`, strategy.ID)
-}
-
-// generateWinNotice 生成竞价获胜通知URL
-func (e *Engine) generateWinNotice(strategy BidStrategy, price float64) string {
-	return fmt.Sprintf("/api/v1/win-notice?strategy_id=%d&price=%.4f&type=%s",
-		strategy.ID, price, strategy.BidType)
-}
-
-var (
-	// ErrInvalidBidRequest 表示无效的竞价请求
-	ErrInvalidBidRequest = errors.New("无效的竞价请求")
-
-	// ErrNoAvailableAds 表示没有可用的广告
-	ErrNoAvailableAds = errors.New("没有可用的广告")
-
-	// ErrBudgetExceeded 表示预算超限
-	ErrBudgetExceeded = errors.New("预算已超限")
-)

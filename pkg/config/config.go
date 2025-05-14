@@ -4,27 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/spf13/viper"
-	"github.com/your-project/logger"
+	"go.uber.org/zap"
+	"sync"
+	"time"
 )
 
 // Config 全局配置结构
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Traffic  TrafficConfig  `mapstructure:"traffic"`
-	RTA      RTAConfig      `mapstructure:"rta"`
-	Bidding  BiddingConfig  `mapstructure:"bidding"`
-	Budget   BudgetConfig   `mapstructure:"budget"`
-	Stats    StatsConfig    `mapstructure:"stats"`
-	Event    EventConfig    `mapstructure:"event"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Kafka    KafkaConfig    `mapstructure:"kafka"`
-	Log      LogConfig      `mapstructure:"log"`
-	Metrics  MetricsConfig  `mapstructure:"metrics"`
+	Server  ServerConfig  `mapstructure:"server"`
+	Traffic TrafficConfig `mapstructure:"traffic"`
+	RTA     RTAConfig     `mapstructure:"rta"`
+	Bidding BiddingConfig `mapstructure:"bidding"`
+	Budget  BudgetConfig  `mapstructure:"budget"`
+	Stats   StatsConfig   `mapstructure:"stats"`
+	Event   EventConfig   `mapstructure:"event"`
+	Redis   RedisConfig   `mapstructure:"redis"`
+	Kafka   KafkaConfig   `mapstructure:"kafka"`
+	Log     LogConfig     `mapstructure:"log"`
+	Metrics MetricsConfig `mapstructure:"metrics"`
 }
 
 // ServerConfig 服务器配置
@@ -39,38 +38,38 @@ type ServerConfig struct {
 // TrafficConfig 流量接入配置
 type TrafficConfig struct {
 	QPS           float64       `mapstructure:"qps"`
-	Burst         int          `mapstructure:"burst"`
+	Burst         int           `mapstructure:"burst"`
 	RTATimeout    time.Duration `mapstructure:"rta_timeout"`
 	BidTimeout    time.Duration `mapstructure:"bid_timeout"`
-	MaxAdSlots    int          `mapstructure:"max_ad_slots"`
-	MinAdSlotSize int          `mapstructure:"min_ad_slot_size"`
-	MaxAdSlotSize int          `mapstructure:"max_ad_slot_size"`
+	MaxAdSlots    int           `mapstructure:"max_ad_slots"`
+	MinAdSlotSize int           `mapstructure:"min_ad_slot_size"`
+	MaxAdSlotSize int           `mapstructure:"max_ad_slot_size"`
 }
 
 // RTAConfig RTA服务配置
 type RTAConfig struct {
-	BaseURL     string        `mapstructure:"base_url"`
-	Timeout     time.Duration `mapstructure:"timeout"`
-	RetryTimes  int          `mapstructure:"retry_times"`
-	RetryDelay  time.Duration `mapstructure:"retry_delay"`
-	CacheTTL    time.Duration `mapstructure:"cache_ttl"`
-	BatchSize   int          `mapstructure:"batch_size"`
+	BaseURL    string        `mapstructure:"base_url"`
+	Timeout    time.Duration `mapstructure:"timeout"`
+	RetryTimes int           `mapstructure:"retry_times"`
+	RetryDelay time.Duration `mapstructure:"retry_delay"`
+	CacheTTL   time.Duration `mapstructure:"cache_ttl"`
+	BatchSize  int           `mapstructure:"batch_size"`
 }
 
 // BiddingConfig 竞价服务配置
 type BiddingConfig struct {
 	MaxConcurrentBids int           `mapstructure:"max_concurrent_bids"`
-	BidTimeout       time.Duration `mapstructure:"bid_timeout"`
-	MinBidPrice      float64       `mapstructure:"min_bid_price"`
-	MaxBidPrice      float64       `mapstructure:"max_bid_price"`
-	CTRModelPath     string        `mapstructure:"ctr_model_path"`
+	BidTimeout        time.Duration `mapstructure:"bid_timeout"`
+	MinBidPrice       float64       `mapstructure:"min_bid_price"`
+	MaxBidPrice       float64       `mapstructure:"max_bid_price"`
+	CTRModelPath      string        `mapstructure:"ctr_model_path"`
 }
 
 // BudgetConfig 预算管理配置
 type BudgetConfig struct {
 	CheckInterval    time.Duration `mapstructure:"check_interval"`
 	WarningThreshold float64       `mapstructure:"warning_threshold"`
-	AutoRenewal      bool         `mapstructure:"auto_renewal"`
+	AutoRenewal      bool          `mapstructure:"auto_renewal"`
 	RenewalTime      string        `mapstructure:"renewal_time"`
 }
 
@@ -81,9 +80,9 @@ type StatsConfig struct {
 		Click      string `mapstructure:"click"`
 		Conversion string `mapstructure:"conversion"`
 	} `mapstructure:"kafka_topics"`
-	RedisPrefix    string        `mapstructure:"redis_prefix"`
-	FlushInterval  time.Duration `mapstructure:"flush_interval"`
-	RetentionDays  int          `mapstructure:"retention_days"`
+	RedisPrefix   string        `mapstructure:"redis_prefix"`
+	FlushInterval time.Duration `mapstructure:"flush_interval"`
+	RetentionDays int           `mapstructure:"retention_days"`
 }
 
 // EventConfig 事件处理配置
@@ -91,17 +90,17 @@ type EventConfig struct {
 	MaxRetries     int           `mapstructure:"max_retries"`
 	RetryDelay     time.Duration `mapstructure:"retry_delay"`
 	ProcessTimeout time.Duration `mapstructure:"process_timeout"`
-	QueueSize      int          `mapstructure:"queue_size"`
+	QueueSize      int           `mapstructure:"queue_size"`
 }
 
 // RedisConfig Redis配置
 type RedisConfig struct {
 	Addresses    []string      `mapstructure:"addresses"`
 	Password     string        `mapstructure:"password"`
-	DB           int          `mapstructure:"db"`
-	PoolSize     int          `mapstructure:"pool_size"`
-	MinIdleConns int          `mapstructure:"min_idle_conns"`
-	MaxRetries   int          `mapstructure:"max_retries"`
+	DB           int           `mapstructure:"db"`
+	PoolSize     int           `mapstructure:"pool_size"`
+	MinIdleConns int           `mapstructure:"min_idle_conns"`
+	MaxRetries   int           `mapstructure:"max_retries"`
 	DialTimeout  time.Duration `mapstructure:"dial_timeout"`
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
@@ -112,7 +111,7 @@ type KafkaConfig struct {
 	Brokers      []string      `mapstructure:"brokers"`
 	GroupID      string        `mapstructure:"group_id"`
 	Version      string        `mapstructure:"version"`
-	MaxRetries   int          `mapstructure:"max_retries"`
+	MaxRetries   int           `mapstructure:"max_retries"`
 	RetryBackoff time.Duration `mapstructure:"retry_backoff"`
 }
 
@@ -199,13 +198,13 @@ func GetConfig() *Config {
 // DynamicConfig 动态配置管理器
 type DynamicConfig struct {
 	redis   *redis.Client
-	logger  *logger.Logger
+	logger  *zap.Logger
 	configs map[string]interface{}
 	mu      sync.RWMutex
 }
 
 // NewDynamicConfig 创建动态配置管理器
-func NewDynamicConfig(redis *redis.Client, logger *logger.Logger) *DynamicConfig {
+func NewDynamicConfig(redis *redis.Client, logger *zap.Logger) *DynamicConfig {
 	dc := &DynamicConfig{
 		redis:   redis,
 		logger:  logger,
@@ -259,12 +258,12 @@ func (dc *DynamicConfig) watchConfigChanges() {
 	ch := pubsub.Channel()
 	for msg := range ch {
 		var event struct {
-			Type string          `json:"type"`
+			Type string                 `json:"type"`
 			Data map[string]interface{} `json:"data"`
 		}
 
 		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
-			dc.logger.Error("解析配置变更事件失败", "error", err)
+			dc.logger.Error("解析配置变更事件失败", zap.Error(err))
 			continue
 		}
 

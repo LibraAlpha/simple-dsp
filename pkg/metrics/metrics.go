@@ -1,20 +1,36 @@
 package metrics
 
 import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"simple-dsp/pkg/config"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 // Metrics 监控指标集合
 type Metrics struct {
+	// HTTP相关指标
+	RequestTotal    *prometheus.CounterVec
+	RequestDuration prometheus.Histogram
+
+	// gRPC相关指标
+	GRPCRequestTotal    *prometheus.CounterVec
+	GRPCRequestDuration prometheus.Histogram
+
 	// 竞价相关指标
-	BidRequests        prometheus.Counter
-	BidResponses      prometheus.Counter
-	BidErrors         prometheus.Counter
-	BidLatency        prometheus.Histogram
-	BidPrice          *prometheus.HistogramVec
-	WinPrice          *prometheus.HistogramVec
-	BidDuration       prometheus.Histogram
+	BidRequests  prometheus.Counter
+	BidResponses prometheus.Counter
+	BidErrors    prometheus.Counter
+	BidLatency   prometheus.Histogram
+	BidPrice     *prometheus.HistogramVec
+	WinPrice     *prometheus.HistogramVec
+	BidDuration  prometheus.Histogram
 
 	// 频次控制相关指标
 	FrequencyCheckTotal     prometheus.Counter
@@ -35,23 +51,94 @@ type Metrics struct {
 	CreativeAuditRejected  prometheus.Counter
 
 	// 缓存相关指标
-	CacheHits             prometheus.Counter
-	CacheMisses           prometheus.Counter
-	CacheErrors           prometheus.Counter
-	CacheLatency          prometheus.Histogram
+	CacheHits    prometheus.Counter
+	CacheMisses  prometheus.Counter
+	CacheErrors  prometheus.Counter
+	CacheLatency prometheus.Histogram
 
 	// 存储相关指标
-	StorageUploadTotal    prometheus.Counter
-	StorageUploadErrors   prometheus.Counter
-	StorageUploadLatency  prometheus.Histogram
-	StorageDeleteTotal    prometheus.Counter
-	StorageDeleteErrors   prometheus.Counter
-	StorageDeleteLatency  prometheus.Histogram
+	StorageUploadTotal   prometheus.Counter
+	StorageUploadErrors  prometheus.Counter
+	StorageUploadLatency prometheus.Histogram
+	StorageDeleteTotal   prometheus.Counter
+	StorageDeleteErrors  prometheus.Counter
+	StorageDeleteLatency prometheus.Histogram
+
+	// RTA检查时间
+	RTACheckDuration prometheus.Histogram
+
+	// 事件处理时间
+	EventHandleDuration prometheus.Histogram
+
+	// 预算检查时间
+	BudgetCheckDuration prometheus.Histogram
+
+	// HTTP服务器
+	server *http.Server
 }
 
+// NoopMetrics 是一个不执行任何操作的指标收集器
+type NoopMetrics struct{}
+
+// NewNoopMetrics 创建一个不执行任何操作的指标收集器
+func NewNoopMetrics() *NoopMetrics {
+	return &NoopMetrics{}
+}
+
+// Observe 为 NoopMetrics 实现所有指标方法
+func (m *NoopMetrics) Observe(float64)                               {}
+func (m *NoopMetrics) Inc()                                          {}
+func (m *NoopMetrics) Add(float64)                                   {}
+func (m *NoopMetrics) WithLabelValues(...string) prometheus.Observer { return m }
+func (m *NoopMetrics) With(prometheus.Labels) prometheus.Observer    { return m }
+
 // NewMetrics 创建监控指标集合
-func NewMetrics() *Metrics {
-	return &Metrics{
+func NewMetrics(port int, path string) *Metrics {
+	cfg := config.MetricsConfig{
+		Enabled: true,
+		Port:    port,
+		Path:    path,
+	}
+
+	m, err := newMetrics(cfg)
+	if err != nil {
+		// 如果创建失败，返回 NoopMetrics
+		return &Metrics{}
+	}
+	return m
+}
+
+// newMetrics 内部函数，用于创建监控指标集合
+func newMetrics(cfg config.MetricsConfig) (*Metrics, error) {
+	m := &Metrics{
+		// HTTP相关指标
+		RequestTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_requests_total",
+				Help: "HTTP请求总数",
+			},
+			[]string{"method", "path", "status"},
+		),
+		RequestDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "dsp_request_duration_seconds",
+			Help:    "请求处理时间",
+			Buckets: prometheus.DefBuckets,
+		}),
+
+		// gRPC相关指标
+		GRPCRequestTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "grpc_requests_total",
+				Help: "gRPC请求总数",
+			},
+			[]string{"method", "status"},
+		),
+		GRPCRequestDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "grpc_request_duration_seconds",
+			Help:    "gRPC请求延迟分布",
+			Buckets: prometheus.DefBuckets,
+		}),
+
 		// 竞价相关指标
 		BidRequests: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "dsp_bid_requests_total",
@@ -196,5 +283,114 @@ func NewMetrics() *Metrics {
 			Help:    "存储删除延迟分布",
 			Buckets: prometheus.DefBuckets,
 		}),
+
+		// RTA检查时间
+		RTACheckDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "dsp_rta_check_duration_seconds",
+			Help:    "RTA检查时间",
+			Buckets: prometheus.DefBuckets,
+		}),
+
+		// 事件处理时间
+		EventHandleDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "dsp_event_handle_duration_seconds",
+			Help:    "事件处理时间",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"event_type"}),
+
+		// 预算检查时间
+		BudgetCheckDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "dsp_budget_check_duration_seconds",
+			Help:    "预算检查时间",
+			Buckets: prometheus.DefBuckets,
+		}),
 	}
-} 
+
+	// 如果启用了指标收集
+	if cfg.Enabled {
+		// 创建HTTP服务器
+		mux := http.NewServeMux()
+		mux.Handle(cfg.Path, promhttp.Handler())
+
+		m.server = &http.Server{
+			Addr:    fmt.Sprintf(":%d", cfg.Port),
+			Handler: mux,
+		}
+
+		// 启动HTTP服务器
+		go func() {
+			if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				// 这里不能使用logger，因为可能造成循环依赖
+				fmt.Printf("metrics服务器错误: %v\n", err)
+			}
+		}()
+	}
+
+	return m, nil
+}
+
+// Close 关闭metrics服务器
+func (m *Metrics) Close() error {
+	if m.server != nil {
+		return m.server.Close()
+	}
+	return nil
+}
+
+// StartPushGateway 启动指标推送到 PushGateway
+func (m *Metrics) StartPushGateway(pushGatewayURL string) {
+	go func() {
+		for {
+			// 创建 pusher
+			pusher := push.New(pushGatewayURL, "dsp_metrics")
+
+			// 添加所有指标
+			pusher.Collector(m.RequestTotal)
+			pusher.Collector(m.RequestDuration)
+			pusher.Collector(m.GRPCRequestTotal)
+			pusher.Collector(m.GRPCRequestDuration)
+			pusher.Collector(m.BidRequests)
+			pusher.Collector(m.BidResponses)
+			pusher.Collector(m.BidErrors)
+			pusher.Collector(m.BidLatency)
+			pusher.Collector(m.BidPrice)
+			pusher.Collector(m.WinPrice)
+			pusher.Collector(m.BidDuration)
+			pusher.Collector(m.FrequencyCheckTotal)
+			pusher.Collector(m.FrequencyLimitExceeded)
+			pusher.Collector(m.FrequencyCheckDuration)
+			pusher.Collector(m.FrequencyRecordTotal)
+			pusher.Collector(m.FrequencyRecordDuration)
+			pusher.Collector(m.CreativeUploaded)
+			pusher.Collector(m.CreativeDeleted)
+			pusher.Collector(m.CreativeSize)
+			pusher.Collector(m.CreativeGroupCreated)
+			pusher.Collector(m.CreativeGroupDeleted)
+			pusher.Collector(m.CreativeUploadDuration)
+			pusher.Collector(m.CreativeAuditTotal)
+			pusher.Collector(m.CreativeAuditApproved)
+			pusher.Collector(m.CreativeAuditRejected)
+			pusher.Collector(m.CacheHits)
+			pusher.Collector(m.CacheMisses)
+			pusher.Collector(m.CacheErrors)
+			pusher.Collector(m.CacheLatency)
+			pusher.Collector(m.StorageUploadTotal)
+			pusher.Collector(m.StorageUploadErrors)
+			pusher.Collector(m.StorageUploadLatency)
+			pusher.Collector(m.StorageDeleteTotal)
+			pusher.Collector(m.StorageDeleteErrors)
+			pusher.Collector(m.StorageDeleteLatency)
+			pusher.Collector(m.RTACheckDuration)
+			pusher.Collector(m.EventHandleDuration)
+			pusher.Collector(m.BudgetCheckDuration)
+
+			// 推送指标
+			if err := pusher.Push(); err != nil {
+				fmt.Printf("推送指标到 PushGateway 失败: %v\n", err)
+			}
+
+			// 等待下一次推送
+			time.Sleep(15 * time.Second)
+		}
+	}()
+}

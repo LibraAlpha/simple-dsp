@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/go-redis/redis/v8"
+	"github.com/segmentio/kafka-go"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
@@ -44,16 +46,22 @@ type Collector struct {
 	redisClient RedisClient
 }
 
-// KafkaClient 定义Kafka客户端接口
-type KafkaClient interface {
-	SendMessage(ctx context.Context, topic string, key string, value []byte) error
+// RedisClient Redis客户端接口
+type RedisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Incr(ctx context.Context, key string) *redis.IntCmd
+	IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd
+	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	Close() error
 }
 
-// RedisClient 定义Redis客户端接口
-type RedisClient interface {
-	IncrBy(ctx context.Context, key string, value int64) (int64, error)
-	Get(ctx context.Context, key string) (string, error)
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error
+// KafkaClient Kafka客户端接口
+type KafkaClient interface {
+	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+	SendMessage(ctx context.Context, topic string, key string, value []byte) error
+	Close() error
 }
 
 // NewCollector 创建新的数据统计收集器

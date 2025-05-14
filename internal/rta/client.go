@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -21,19 +20,21 @@ const (
 
 // Client RTA客户端
 type Client struct {
-	appKey       string
-	appSecret    string
-	httpClient   *http.Client
-	logger       *logger.Logger
-	metrics      *metrics.Metrics
-	configMgr    *ConfigManager
-	cache        *cache.Cache
+	baseURL        string
+	appKey         string
+	appSecret      string
+	httpClient     *http.Client
+	logger         *logger.Logger
+	metrics        *metrics.Metrics
+	configMgr      *ConfigManager
+	cache          *cache.Cache
 	defaultTimeout time.Duration
 }
 
 // NewClient 创建新的RTA客户端
-func NewClient(appKey, appSecret string, logger *logger.Logger, metrics *metrics.Metrics) *Client {
+func NewClient(baseURL, appKey, appSecret string, logger *logger.Logger, metrics *metrics.Metrics) *Client {
 	return &Client{
+		baseURL:   baseURL,
 		appKey:    appKey,
 		appSecret: appSecret,
 		httpClient: &http.Client{
@@ -53,8 +54,8 @@ func (c *Client) SingleQuery(ctx context.Context, req *SingleRequest) (*SingleRe
 
 	// 构建请求
 	params := map[string]string{
-		"app_key":    c.appKey,
-		"channel":    req.Channel,
+		"app_key":     c.appKey,
+		"channel":     req.Channel,
 		"ad_space_id": req.AdvertisingSpaceID,
 	}
 
@@ -79,8 +80,8 @@ func (c *Client) BatchQuery(ctx context.Context, req *BatchRequest) (*BatchRespo
 
 	// 构建请求
 	params := map[string]string{
-		"app_key":    c.appKey,
-		"channel":    req.Channel,
+		"app_key":     c.appKey,
+		"channel":     req.Channel,
 		"ad_space_id": req.AdvertisingSpaceID,
 	}
 
@@ -112,7 +113,7 @@ func (c *Client) validateSingleRequest(req *SingleRequest) error {
 	if req.AdvertisingSpaceID == "" {
 		return fmt.Errorf("advertising_space_id is required")
 	}
-	
+
 	// 至少需要一个设备ID
 	hasDeviceID := req.IMEI != "" || req.IMEIMD5 != "" ||
 		req.IDFA != "" || req.IDFAMD5 != "" ||
@@ -120,7 +121,7 @@ func (c *Client) validateSingleRequest(req *SingleRequest) error {
 	if !hasDeviceID {
 		return fmt.Errorf("at least one device ID is required")
 	}
-	
+
 	return nil
 }
 
@@ -132,19 +133,19 @@ func (c *Client) validateBatchRequest(req *BatchRequest) error {
 	if req.AdvertisingSpaceID == "" {
 		return fmt.Errorf("advertising_space_id is required")
 	}
-	
+
 	// 至少需要一个设备ID列表
 	if req.IMEIMD5List == "" && req.IDFAMD5List == "" && req.OAIDMD5List == "" {
 		return fmt.Errorf("at least one device ID list is required")
 	}
-	
+
 	// 检查设备ID数量限制
 	for _, list := range []string{req.IMEIMD5List, req.IDFAMD5List, req.OAIDMD5List} {
 		if list != "" && len(strings.Split(list, ",")) > 20 {
 			return fmt.Errorf("device ID list cannot contain more than 20 items")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -218,7 +219,7 @@ func (c *Client) CheckTargeting(ctx context.Context, userID string) (bool, error
 
 	// 解析响应
 	var result struct {
-		Code    int  `json:"code"`
+		Code    int    `json:"code"`
 		Message string `json:"message"`
 		Data    struct {
 			IsTargeted bool `json:"is_targeted"`
@@ -254,7 +255,7 @@ func (c *Client) BatchCheckTargeting(ctx context.Context, userIDs []string) (map
 	}
 
 	// 序列化请求体
-	reqBodyBytes, err := json.Marshal(reqBody)
+	_, err := json.Marshal(reqBody)
 	if err != nil {
 		c.logger.Error("序列化RTA批量请求失败", "error", err)
 		return nil, err

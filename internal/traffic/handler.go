@@ -3,44 +3,44 @@ package traffic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"sync"
 	"time"
 
-	"golang.org/x/time/rate"
+	"github.com/gin-gonic/gin"
 	"simple-dsp/internal/bidding"
-	"simple-dsp/internal/budget"
+	"simple-dsp/internal/event"
 	"simple-dsp/internal/rta"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
 
-// TrafficRequest 表示来自上游的流量请求
-type TrafficRequest struct {
+// Request TrafficRequest 表示来自上游的流量请求
+type Request struct {
 	RequestID   string            `json:"request_id"`
 	UserID      string            `json:"user_id"`
 	DeviceID    string            `json:"device_id"`
 	IP          string            `json:"ip"`
 	UserAgent   string            `json:"user_agent"`
-	AdSlots     []AdSlot         `json:"ad_slots"`
-	Timestamp   int64            `json:"timestamp"`
+	AdSlots     []AdSlot          `json:"ad_slots"`
+	Timestamp   int64             `json:"timestamp"`
 	ExtraParams map[string]string `json:"extra_params"`
 }
 
 // AdSlot 表示广告位信息
 type AdSlot struct {
-	SlotID     string  `json:"slot_id"`
-	Width      int     `json:"width"`
-	Height     int     `json:"height"`
-	MinPrice   float64 `json:"min_price"`
-	MaxPrice   float64 `json:"max_price"`
-	Position   string  `json:"position"`
-	AdType     string  `json:"ad_type"`
+	SlotID   string  `json:"slot_id"`
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	MinPrice float64 `json:"min_price"`
+	MaxPrice float64 `json:"max_price"`
+	Position string  `json:"position"`
+	AdType   string  `json:"ad_type"`
 }
 
-// TrafficResponse 表示返回给上游的响应
-type TrafficResponse struct {
-	RequestID string      `json:"request_id"`
+// Response TrafficResponse 表示返回给上游的响应
+type Response struct {
+	RequestID string     `json:"request_id"`
 	Code      int        `json:"code"`
 	Message   string     `json:"message"`
 	Data      []AdResult `json:"data"`
@@ -55,51 +55,61 @@ type AdResult struct {
 	WinNotice string  `json:"win_notice"`
 }
 
-// Handler 处理流量请求
+// Handler 流量处理器
 type Handler struct {
-	biddingEngine *bidding.Engine
 	rtaClient     *rta.Client
-	budgetMgr     *budget.Manager
+	biddingEngine *bidding.Engine
+	eventHandler  *event.Handler
 	logger        *logger.Logger
 	metrics       *metrics.Metrics
-	limiter       *rate.Limiter
-	mu            sync.RWMutex
+	limiter       *Limiter
+}
+
+// NewHandler 创建新的流量处理器
+func NewHandler(
+	rtaClient *rta.Client,
+	biddingEngine *bidding.Engine,
+	eventHandler *event.Handler,
+	logger *logger.Logger,
+	metrics *metrics.Metrics,
+	limiter *Limiter,
+) *Handler {
+	return &Handler{
+		rtaClient:     rtaClient,
+		biddingEngine: biddingEngine,
+		eventHandler:  eventHandler,
+		logger:        logger,
+		metrics:       metrics,
+		limiter:       limiter,
+	}
+}
+
+// GetStats 获取流量统计
+func (h *Handler) GetStats(c *gin.Context) {
+	// TODO: 实现流量统计
+	c.JSON(http.StatusOK, gin.H{
+		"total_requests":    0,
+		"total_impressions": 0,
+		"total_clicks":      0,
+		"total_conversions": 0,
+	})
 }
 
 // HandlerConfig 处理器配置
 type HandlerConfig struct {
 	QPS           float64       // 每秒请求数限制
-	Burst         int          // 突发请求数限制
+	Burst         int           // 突发请求数限制
 	RTATimeout    time.Duration // RTA服务超时时间
 	BidTimeout    time.Duration // 竞价服务超时时间
-	MaxAdSlots    int          // 最大广告位数
-	MinAdSlotSize int          // 最小广告位尺寸
-	MaxAdSlotSize int          // 最大广告位尺寸
-}
-
-// NewHandler 创建新的流量处理器
-func NewHandler(
-	biddingEngine *bidding.Engine,
-	rtaClient *rta.Client,
-	budgetMgr *budget.Manager,
-	logger *logger.Logger,
-	metrics *metrics.Metrics,
-	config HandlerConfig,
-) *Handler {
-	return &Handler{
-		biddingEngine: biddingEngine,
-		rtaClient:     rtaClient,
-		budgetMgr:     budgetMgr,
-		logger:        logger,
-		metrics:       metrics,
-		limiter:       rate.NewLimiter(rate.Limit(config.QPS), config.Burst),
-	}
+	MaxAdSlots    int           // 最大广告位数
+	MinAdSlotSize int           // 最小广告位尺寸
+	MaxAdSlotSize int           // 最大广告位尺寸
 }
 
 // HandleRequest 处理流量请求
-func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleRequest(c *gin.Context) {
 	startTime := time.Now()
-	requestID := r.Header.Get("X-Request-ID")
+	requestID := c.GetHeader("X-Request-ID")
 	if requestID == "" {
 		requestID = generateRequestID()
 	}
@@ -107,15 +117,15 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	// 记录请求开始
 	h.logger.Info("收到流量请求",
 		"request_id", requestID,
-		"remote_addr", r.RemoteAddr,
-		"user_agent", r.UserAgent())
+		"remote_addr", c.ClientIP(),
+		"user_agent", c.GetHeader("User-Agent"))
 
 	// 限流检查
 	if !h.limiter.Allow() {
 		h.logger.Warn("请求被限流",
 			"request_id", requestID,
-			"remote_addr", r.RemoteAddr)
-		http.Error(w, "服务繁忙，请稍后重试", http.StatusTooManyRequests)
+			"remote_addr", c.ClientIP())
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "服务繁忙，请稍后重试"})
 		return
 	}
 
@@ -129,12 +139,12 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// 解析请求
-	var req TrafficRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req Request
+	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Error("解析请求失败",
 			"request_id", requestID,
 			"error", err)
-		http.Error(w, "无效的请求格式", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求格式"})
 		return
 	}
 
@@ -146,12 +156,12 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("请求参数验证失败",
 			"request_id", requestID,
 			"error", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 创建上下文
-	ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	// RTA定向判断
@@ -161,7 +171,7 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 			"request_id", requestID,
 			"user_id", req.UserID,
 			"error", err)
-		http.Error(w, "服务暂时不可用", http.StatusServiceUnavailable)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "服务暂时不可用"})
 		return
 	}
 
@@ -169,7 +179,7 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("用户不符合RTA定向",
 			"request_id", requestID,
 			"user_id", req.UserID)
-		h.sendResponse(w, &TrafficResponse{
+		c.JSON(http.StatusOK, Response{
 			RequestID: requestID,
 			Code:      0,
 			Message:   "用户不符合定向要求",
@@ -188,22 +198,22 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	// 执行竞价
 	bidResp, err := h.biddingEngine.ProcessBid(ctx, bidReq)
 	if err != nil {
-		switch err {
-		case bidding.ErrNoAvailableAds:
+		switch {
+		case errors.Is(err, bidding.ErrNoAvailableAds):
 			h.logger.Info("没有可用的广告",
 				"request_id", requestID,
 				"user_id", req.UserID)
-			h.sendResponse(w, &TrafficResponse{
+			c.JSON(http.StatusOK, Response{
 				RequestID: requestID,
 				Code:      0,
 				Message:   "没有可用的广告",
 				Data:      []AdResult{},
 			})
-		case bidding.ErrBudgetExceeded:
+		case errors.Is(err, bidding.ErrBudgetExceeded):
 			h.logger.Warn("预算已超限",
 				"request_id", requestID,
 				"user_id", req.UserID)
-			h.sendResponse(w, &TrafficResponse{
+			c.JSON(http.StatusOK, Response{
 				RequestID: requestID,
 				Code:      0,
 				Message:   "预算已超限",
@@ -214,13 +224,13 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				"request_id", requestID,
 				"user_id", req.UserID,
 				"error", err)
-			http.Error(w, "竞价处理失败", http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "竞价处理失败"})
 		}
 		return
 	}
 
 	// 构造响应
-	resp := &TrafficResponse{
+	resp := Response{
 		RequestID: requestID,
 		Code:      0,
 		Message:   "success",
@@ -234,11 +244,11 @@ func (h *Handler) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		"ad_id", bidResp.AdID,
 		"bid_price", bidResp.BidPrice)
 
-	h.sendResponse(w, resp)
+	c.JSON(http.StatusOK, resp)
 }
 
 // validateRequest 验证请求参数
-func (h *Handler) validateRequest(req *TrafficRequest) error {
+func (h *Handler) validateRequest(req *Request) error {
 	if req.RequestID == "" {
 		return ErrInvalidRequestID
 	}
@@ -289,10 +299,13 @@ func (h *Handler) validateAdSlot(slot *AdSlot) error {
 }
 
 // sendResponse 发送响应
-func (h *Handler) sendResponse(w http.ResponseWriter, resp *TrafficResponse) {
+func (h *Handler) sendResponse(w http.ResponseWriter, resp *Response) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Request-ID", resp.RequestID)
-	json.NewEncoder(w).Encode(resp)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		return
+	}
 }
 
 // generateRequestID 生成请求ID
@@ -341,4 +354,4 @@ func convertToAdResults(resp *bidding.BidResponse) []AdResult {
 			WinNotice: resp.WinNotice,
 		},
 	}
-} 
+}

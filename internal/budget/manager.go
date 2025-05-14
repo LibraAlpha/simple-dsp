@@ -136,8 +136,8 @@ func (m *Manager) CheckAndDeduct(ctx context.Context, budgetID string, amount fl
 	budget.UpdateTime = now
 
 	// 更新指标
-	m.metrics.BudgetSpent.WithLabelValues(budgetID).Set(budget.Spent)
-	m.metrics.BudgetRemaining.WithLabelValues(budgetID).Set(budget.Amount - budget.Spent)
+	//m.metrics.BudgetSpent.WithLabelValues(budgetID).Set(budget.Spent)
+	//m.metrics.BudgetRemaining.WithLabelValues(budgetID).Set(budget.Amount - budget.Spent)
 
 	return true, nil
 }
@@ -192,4 +192,4 @@ type BudgetStatus struct {
 // getBudgetKey 获取预算Redis键
 func getBudgetKey(budgetID string) string {
 	return "budget:spent:" + budgetID
-} 
+}

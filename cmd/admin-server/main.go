@@ -115,46 +115,12 @@ func main() {
 
 // initLogger 初始化日志
 func initLogger(cfg config.LogConfig) *logger.Logger {
-	// 创建日志目录
-	if err := os.MkdirAll("logs", 0755); err != nil {
-		fmt.Printf("创建日志目录失败: %v\n", err)
+	log, err := logger.NewLoggerFromConfig(cfg)
+	if err != nil {
+		fmt.Printf("初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
-
-	// 配置日志编码器
-	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
-	}
-
-	// 创建日志核心
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderConfig),
-		zapcore.NewMultiWriteSyncer(
-			zapcore.AddSync(os.Stdout),
-			zapcore.AddSync(&logger.RotateWriter{
-				Filename:   "logs/admin.log",
-				MaxSize:    cfg.MaxSize,
-				MaxBackups: cfg.MaxBackups,
-				MaxAge:     cfg.MaxAge,
-				Compress:   cfg.Compress,
-			}),
-		),
-		zap.NewAtomicLevelAt(getLogLevel(cfg.Level)),
-	)
-
-	// 创建日志记录器
-	zapLogger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
-	return logger.NewLogger(zapLogger)
+	return log
 }
 
 // initMetrics 初始化监控指标

@@ -3,7 +3,9 @@ package bidding
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -11,25 +13,25 @@ import (
 
 // Repository 出价策略存储接口
 type Repository interface {
-	// 获取出价策略列表
+	// ListBidStrategies 获取出价策略列表
 	ListBidStrategies(ctx context.Context, filter BidStrategyFilter) ([]BidStrategy, int64, error)
-	// 获取单个出价策略
+	// GetBidStrategy 获取单个出价策略
 	GetBidStrategy(ctx context.Context, id int64) (*BidStrategy, error)
-	// 创建出价策略
+	// CreateBidStrategy 创建出价策略
 	CreateBidStrategy(ctx context.Context, strategy *BidStrategy) error
-	// 更新出价策略
+	// UpdateBidStrategy 更新出价策略
 	UpdateBidStrategy(ctx context.Context, strategy *BidStrategy) error
-	// 删除出价策略
+	// DeleteBidStrategy 删除出价策略
 	DeleteBidStrategy(ctx context.Context, id int64) error
-	// 更新出价策略状态
+	// UpdateBidStrategyStatus 更新出价策略状态
 	UpdateBidStrategyStatus(ctx context.Context, id int64, status int) error
-	// 关联素材
+	// AddCreative 关联素材
 	AddCreative(ctx context.Context, strategyID int64, creativeID int64) error
-	// 移除素材
+	// RemoveCreative 移除素材
 	RemoveCreative(ctx context.Context, strategyID int64, creativeID int64) error
-	// 获取策略关联的素材列表
-	ListCreatives(ctx context.Context, strategyID int64) ([]BidStrategyCreative, error)
-	// 获取策略统计数据
+	// ListCreatives 获取策略关联的素材列表
+	ListCreatives(ctx context.Context, strategyID string) ([]BidStrategyCreative, error)
+	// GetStrategyStats 获取策略统计数据
 	GetStrategyStats(ctx context.Context, strategyID int64, startDate, endDate string) ([]BidStrategyStats, error)
 }
 
@@ -55,12 +57,18 @@ func (r *MySQLRepository) ListBidStrategies(ctx context.Context, filter BidStrat
 
 	if filter.MinPrice != nil {
 		conditions = append(conditions, "price >= ?")
-		args = append(args, *filter.MinPrice)
+		args = append(
+			args,
+			*filter.MinPrice,
+		)
 	}
 
 	if filter.MaxPrice != nil {
 		conditions = append(conditions, "price <= ?")
-		args = append(args, *filter.MaxPrice)
+		args = append(
+			args,
+			*filter.MaxPrice,
+		)
 	}
 
 	where := ""
@@ -106,7 +114,7 @@ func (r *MySQLRepository) ListBidStrategies(ctx context.Context, filter BidStrat
 func (r *MySQLRepository) GetBidStrategy(ctx context.Context, id int64) (*BidStrategy, error) {
 	var strategy BidStrategy
 	err := r.db.GetContext(ctx, &strategy, "SELECT * FROM bid_strategies WHERE id = ?", id)
-	if err == sql.ErrNoRows {
+	if errors.Is(sql.ErrNoRows, err) {
 		return nil, nil
 	}
 	if err != nil {
@@ -146,7 +154,7 @@ func (r *MySQLRepository) CreateBidStrategy(ctx context.Context, strategy *BidSt
 	if err != nil {
 		return err
 	}
-	strategy.ID = id
+	strategy.ID = strconv.FormatInt(id, 10)
 
 	// 关联素材
 	for _, creative := range strategy.Creatives {
@@ -236,7 +244,7 @@ func (r *MySQLRepository) RemoveCreative(ctx context.Context, strategyID int64, 
 }
 
 // ListCreatives 获取策略关联的素材列表
-func (r *MySQLRepository) ListCreatives(ctx context.Context, strategyID int64) ([]BidStrategyCreative, error) {
+func (r *MySQLRepository) ListCreatives(ctx context.Context, strategyID string) ([]BidStrategyCreative, error) {
 	var creatives []BidStrategyCreative
 	query := "SELECT * FROM bid_strategy_creatives WHERE strategy_id = ?"
 	err := r.db.SelectContext(ctx, &creatives, query, strategyID)
@@ -261,4 +269,4 @@ func (r *MySQLRepository) GetStrategyStats(ctx context.Context, strategyID int64
 	var stats []BidStrategyStats
 	err := r.db.SelectContext(ctx, &stats, query, strategyID, startDate, endDate)
 	return stats, err
-} 
+}

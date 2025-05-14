@@ -12,12 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-
 	"simple-dsp/internal/bidding"
 	"simple-dsp/internal/budget"
 	"simple-dsp/internal/event"
+	"simple-dsp/internal/frequency"
 	"simple-dsp/internal/rta"
 	"simple-dsp/internal/stats"
 	"simple-dsp/internal/traffic"
@@ -26,179 +24,152 @@ import (
 	"simple-dsp/pkg/metrics"
 )
 
+// RedisClient Redis客户端接口
+type RedisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Incr(ctx context.Context, key string) *redis.IntCmd
+	IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd
+	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	Close() error
+}
+
+// KafkaClient Kafka客户端接口
+type KafkaClient interface {
+	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+	SendMessage(ctx context.Context, topic string, key string, value []byte) error
+	Close() error
+}
+
+// RedisClientWrapper Redis客户端包装器
+type RedisClientWrapper struct {
+	*redis.Client
+}
+
+// KafkaWriter Kafka写入器
+type KafkaWriter struct {
+	*kafka.Writer
+}
+
+// SendMessage 发送消息到Kafka
+func (w *KafkaWriter) SendMessage(ctx context.Context, topic string, key string, value []byte) error {
+	return w.WriteMessages(ctx, kafka.Message{
+		Topic: topic,
+		Key:   []byte(key),
+		Value: value,
+	})
+}
+
 func main() {
-	// 1. 加载配置
-	if err := config.LoadConfig("configs/config.yaml"); err != nil {
+	// 初始化配置
+	cfg, err := config.Load()
+	if err != nil {
 		fmt.Printf("加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
-	cfg := config.GetConfig()
 
-	// 2. 初始化日志
-	log := initLogger(cfg.Log)
-	defer log.Sync()
-
-	// 3. 初始化监控指标
-	metrics := initMetrics(cfg.Metrics)
-
-	// 4. 初始化Redis客户端
-	redisClient := initRedis(cfg.Redis)
-	defer redisClient.Close()
-
-	// 5. 初始化Kafka客户端
-	kafkaClient := initKafka(cfg.Kafka)
-	defer kafkaClient.Close()
-
-	// 6. 初始化各个模块
-	// 6.1 初始化RTA客户端
-	rtaClient := rta.NewClient(
-		cfg.RTA.BaseURL,
-		log,
-		metrics,
-	)
-
-	// 6.2 初始化预算管理器
-	budgetMgr := budget.NewManager(
-		redisClient,
-		log,
-		metrics,
-	)
-
-	// 6.3 初始化数据统计收集器
-	statsCollector := stats.NewCollector(
-		kafkaClient,
-		redisClient,
-		log,
-		metrics,
-	)
-
-	// 6.4 初始化竞价引擎
-	biddingEngine := bidding.NewEngine(
-		nil, // TODO: 实现广告服务
-		budgetMgr,
-		log,
-		metrics,
-	)
-
-	// 6.5 初始化事件处理器
-	eventHandler := event.NewHandler(
-		statsCollector,
-		log,
-		metrics,
-	)
-
-	// 6.6 初始化流量处理器
-	trafficHandler := traffic.NewHandler(
-		biddingEngine,
-		rtaClient,
-		budgetMgr,
-		log,
-		metrics,
-		traffic.HandlerConfig{
-			QPS:           cfg.Traffic.QPS,
-			Burst:         cfg.Traffic.Burst,
-			RTATimeout:    cfg.Traffic.RTATimeout,
-			BidTimeout:    cfg.Traffic.BidTimeout,
-			MaxAdSlots:    cfg.Traffic.MaxAdSlots,
-			MinAdSlotSize: cfg.Traffic.MinAdSlotSize,
-			MaxAdSlotSize: cfg.Traffic.MaxAdSlotSize,
-		},
-	)
-
-	// 7. 初始化HTTP服务器
-	router := initRouter(trafficHandler, eventHandler)
-	srv := &http.Server{
-		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:        router,
-		ReadTimeout:    cfg.Server.ReadTimeout,
-		WriteTimeout:   cfg.Server.WriteTimeout,
-		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
+	// 初始化日志
+	log, err := logger.NewLogger(cfg.Log)
+	if err != nil {
+		fmt.Printf("初始化日志失败: %v\n", err)
+		os.Exit(1)
 	}
-
-	// 8. 启动服务器
-	go func() {
-		log.Info("启动HTTP服务器", "port", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("HTTP服务器启动失败", "error", err)
+	defer func() {
+		if err := log.Sync(); err != nil {
+			fmt.Printf("同步日志失败: %v\n", err)
 		}
 	}()
 
-	// 9. 优雅关闭
+	// 初始化监控指标
+	metricsCollector := metrics.NewMetrics(cfg.Metrics.Port, cfg.Metrics.Path)
+	if cfg.Metrics.PushGatewayURL != "" {
+		metricsCollector.StartPushGateway(cfg.Metrics.PushGatewayURL)
+	}
+
+	// 初始化Redis客户端
+	redisClient := initRedis(cfg.Redis)
+	defer redisClient.Close()
+
+	// 初始化Kafka客户端
+	kafkaClient := initKafka(cfg.Kafka)
+	defer kafkaClient.Close()
+
+	// 初始化RTA客户端
+	rtaClient := rta.NewClient(
+		cfg.RTA.BaseURL,
+		cfg.RTA.AppKey,
+		cfg.RTA.AppSecret,
+		log,
+		metricsCollector,
+	)
+
+	// 初始化预算管理器
+	budgetMgr := budget.NewManager(redisClient, log, metricsCollector)
+
+	// 初始化频次控制器
+	freqCtrl := frequency.NewController(redisClient, log, metricsCollector)
+
+	// 初始化数据统计收集器
+	statsCollector := stats.NewCollector(kafkaClient, redisClient, log, metricsCollector)
+
+	// 初始化竞价引擎
+	biddingEngine := bidding.NewEngine(
+		nil, // TODO: 实现广告服务
+		budgetMgr,
+		freqCtrl,
+		log,
+		metricsCollector,
+	)
+
+	// 初始化事件处理器
+	eventHandler := event.NewHandler(statsCollector, log, metricsCollector)
+
+	// 初始化流量处理器
+	trafficHandler := traffic.NewHandler(
+		rtaClient,
+		biddingEngine,
+		eventHandler,
+		log,
+		metricsCollector,
+	)
+
+	// 初始化路由
+	router := initRouter(trafficHandler, eventHandler)
+
+	// 创建HTTP服务器
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler: router,
+	}
+
+	// 启动服务器
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("启动服务器失败", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info("正在关闭服务器...")
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	// 优雅关闭
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("服务器关闭失败", "error", err)
-	}
-	log.Info("服务器已关闭")
-}
-
-// initLogger 初始化日志
-func initLogger(cfg config.LogConfig) *logger.Logger {
-	// 创建日志目录
-	if err := os.MkdirAll("logs", 0755); err != nil {
-		fmt.Printf("创建日志目录失败: %v\n", err)
+		log.Error("关闭服务器失败", "error", err)
 		os.Exit(1)
 	}
-
-	// 配置日志编码器
-	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
-	}
-
-	// 创建日志核心
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderConfig),
-		zapcore.NewMultiWriteSyncer(
-			zapcore.AddSync(os.Stdout),
-			zapcore.AddSync(&logger.RotateWriter{
-				Filename:   cfg.Filename,
-				MaxSize:    cfg.MaxSize,
-				MaxBackups: cfg.MaxBackups,
-				MaxAge:     cfg.MaxAge,
-				Compress:   cfg.Compress,
-			}),
-		),
-		zap.NewAtomicLevelAt(getLogLevel(cfg.Level)),
-	)
-
-	// 创建日志记录器
-	zapLogger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
-	return logger.NewLogger(zapLogger)
-}
-
-// initMetrics 初始化监控指标
-func initMetrics(cfg config.MetricsConfig) *metrics.Metrics {
-	if !cfg.Enabled {
-		return metrics.NewNoopMetrics()
-	}
-
-	m := metrics.NewMetrics(cfg.Port, cfg.Path)
-	if cfg.PushGateway != "" {
-		go m.StartPushGateway(cfg.PushGateway)
-	}
-	return m
 }
 
 // initRedis 初始化Redis客户端
-func initRedis(cfg config.RedisConfig) *redis.Client {
+func initRedis(cfg config.RedisConfig) RedisClient {
 	client := redis.NewClient(&redis.Options{
-		Addr:         cfg.Addresses[0], // 使用第一个地址
+		Addr:         cfg.Addr,
 		Password:     cfg.Password,
 		DB:           cfg.DB,
 		PoolSize:     cfg.PoolSize,
@@ -212,28 +183,27 @@ func initRedis(cfg config.RedisConfig) *redis.Client {
 	// 测试连接
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
 	if err := client.Ping(ctx).Err(); err != nil {
-		fmt.Printf("Redis连接失败: %v\n", err)
+		fmt.Printf("连接Redis失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	return client
+	return &RedisClientWrapper{client}
 }
 
 // initKafka 初始化Kafka客户端
-func initKafka(cfg config.KafkaConfig) *kafka.Writer {
+func initKafka(cfg config.KafkaConfig) KafkaClient {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
-		Topic:        "", // 动态设置
+		Topic:        cfg.Topic,
 		Balancer:     &kafka.LeastBytes{},
-		MaxAttempts:  cfg.MaxRetries,
-		BatchSize:    100,
-		BatchTimeout: 100 * time.Millisecond,
-		RequiredAcks: kafka.RequireOne,
-		Async:        true,
+		BatchSize:    cfg.BatchSize,
+		BatchTimeout: cfg.BatchTimeout,
+		Async:        cfg.Async,
 	}
 
-	return writer
+	return &KafkaWriter{writer}
 }
 
 // initRouter 初始化路由
@@ -241,13 +211,13 @@ func initRouter(trafficHandler *traffic.Handler, eventHandler *event.Handler) *g
 	router := gin.Default()
 
 	// 流量接入接口
-	router.POST("/api/v1/traffic", trafficHandler.HandleRequest)
+	router.POST("/api/v1/traffic", gin.HandlerFunc(trafficHandler.HandleRequest))
 
 	// 事件处理接口
-	router.POST("/api/v1/events/impression", eventHandler.HandleImpression)
-	router.POST("/api/v1/events/click", eventHandler.HandleClick)
-	router.POST("/api/v1/events/conversion", eventHandler.HandleConversion)
-	router.GET("/api/v1/events/stats", eventHandler.GetEventStats)
+	router.POST("/api/v1/events/impression", gin.HandlerFunc(eventHandler.HandleImpression))
+	router.POST("/api/v1/events/click", gin.HandlerFunc(eventHandler.HandleClick))
+	router.POST("/api/v1/events/conversion", gin.HandlerFunc(eventHandler.HandleConversion))
+	router.GET("/api/v1/events/stats", gin.HandlerFunc(eventHandler.GetEventStats))
 
 	// 健康检查接口
 	router.GET("/health", func(c *gin.Context) {
@@ -255,20 +225,4 @@ func initRouter(trafficHandler *traffic.Handler, eventHandler *event.Handler) *g
 	})
 
 	return router
-}
-
-// getLogLevel 获取日志级别
-func getLogLevel(level string) zapcore.Level {
-	switch level {
-	case "debug":
-		return zapcore.DebugLevel
-	case "info":
-		return zapcore.InfoLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	default:
-		return zapcore.InfoLevel
-	}
 }
