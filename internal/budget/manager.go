@@ -2,6 +2,7 @@ package budget
 
 import (
 	"context"
+	"simple-dsp/pkg/clients"
 	"sync"
 	"time"
 
@@ -9,27 +10,27 @@ import (
 	"simple-dsp/pkg/metrics"
 )
 
-// BudgetType 预算类型
-type BudgetType string
+// Type BudgetType 预算类型
+type Type string
 
 const (
 	// DailyBudget 日预算
-	DailyBudget BudgetType = "daily"
+	DailyBudget Type = "daily"
 	// TotalBudget 总预算
-	TotalBudget BudgetType = "total"
+	TotalBudget Type = "total"
 )
 
 // Budget 预算信息
 type Budget struct {
-	ID          string     `json:"id"`
-	Type        BudgetType `json:"type"`
-	Amount      float64    `json:"amount"`
-	Spent       float64    `json:"spent"`
-	StartTime   time.Time  `json:"start_time"`
-	EndTime     time.Time  `json:"end_time"`
-	UpdateTime  time.Time  `json:"update_time"`
-	Status      string     `json:"status"`
-	Description string     `json:"description"`
+	ID          string    `json:"id"`
+	Type        Type      `json:"type"`
+	Amount      float64   `json:"amount"`
+	Spent       float64   `json:"spent"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	UpdateTime  time.Time `json:"update_time"`
+	Status      string    `json:"status"`
+	Description string    `json:"description"`
 }
 
 // Manager 预算管理器
@@ -38,18 +39,11 @@ type Manager struct {
 	mu          sync.RWMutex
 	logger      *logger.Logger
 	metrics     *metrics.Metrics
-	redisClient RedisClient
-}
-
-// RedisClient 定义Redis客户端接口
-type RedisClient interface {
-	IncrBy(ctx context.Context, key string, value int64) (int64, error)
-	Get(ctx context.Context, key string) (string, error)
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error
+	redisClient *clients.GoRedisAdapter
 }
 
 // NewManager 创建新的预算管理器
-func NewManager(redisClient RedisClient, logger *logger.Logger, metrics *metrics.Metrics) *Manager {
+func NewManager(redisClient *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Manager {
 	return &Manager{
 		budgets:     make(map[string]*Budget),
 		logger:      logger,
@@ -125,6 +119,7 @@ func (m *Manager) CheckAndDeduct(ctx context.Context, budgetID string, amount fl
 
 	// 使用Redis进行原子性扣除
 	key := getBudgetKey(budgetID)
+
 	newSpent, err := m.redisClient.IncrBy(ctx, key, int64(amount*100)) // 转换为分
 	if err != nil {
 		m.logger.Error("扣除预算失败", "error", err, "budget_id", budgetID)
@@ -174,19 +169,19 @@ func (m *Manager) GetBudgetStatus(budgetID string) (*BudgetStatus, error) {
 
 // BudgetStatus 预算状态信息
 type BudgetStatus struct {
-	ID          string     `json:"id"`
-	Type        BudgetType `json:"type"`
-	Amount      float64    `json:"amount"`
-	Spent       float64    `json:"spent"`
-	Remaining   float64    `json:"remaining"`
-	StartTime   time.Time  `json:"start_time"`
-	EndTime     time.Time  `json:"end_time"`
-	Status      string     `json:"status"`
-	UpdateTime  time.Time  `json:"update_time"`
-	IsActive    bool       `json:"is_active"`
-	IsExceeded  bool       `json:"is_exceeded"`
-	IsExpired   bool       `json:"is_expired"`
-	Description string     `json:"description"`
+	ID          string    `json:"id"`
+	Type        Type      `json:"type"`
+	Amount      float64   `json:"amount"`
+	Spent       float64   `json:"spent"`
+	Remaining   float64   `json:"remaining"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	Status      string    `json:"status"`
+	UpdateTime  time.Time `json:"update_time"`
+	IsActive    bool      `json:"is_active"`
+	IsExceeded  bool      `json:"is_exceeded"`
+	IsExpired   bool      `json:"is_expired"`
+	Description string    `json:"description"`
 }
 
 // getBudgetKey 获取预算Redis键

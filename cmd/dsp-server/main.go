@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
 	"simple-dsp/internal/bidding"
 	"simple-dsp/internal/budget"
@@ -19,81 +18,56 @@ import (
 	"simple-dsp/internal/rta"
 	"simple-dsp/internal/stats"
 	"simple-dsp/internal/traffic"
+	"simple-dsp/pkg/clients"
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
 
-// RedisClient Redis客户端接口
-type RedisClient interface {
-	Get(ctx context.Context, key string) *redis.StringCmd
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-	Incr(ctx context.Context, key string) *redis.IntCmd
-	IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd
-	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
-	Close() error
-}
-
-// KafkaClient Kafka客户端接口
-type KafkaClient interface {
-	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
-	SendMessage(ctx context.Context, topic string, key string, value []byte) error
-	Close() error
-}
-
-// RedisClientWrapper Redis客户端包装器
-type RedisClientWrapper struct {
-	*redis.Client
-}
-
-// KafkaWriter Kafka写入器
-type KafkaWriter struct {
-	*kafka.Writer
-}
-
-// SendMessage 发送消息到Kafka
-func (w *KafkaWriter) SendMessage(ctx context.Context, topic string, key string, value []byte) error {
-	return w.WriteMessages(ctx, kafka.Message{
-		Topic: topic,
-		Key:   []byte(key),
-		Value: value,
-	})
-}
-
 func main() {
 	// 初始化配置
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Printf("加载配置失败: %v\n", err)
-		os.Exit(1)
-	}
+	cfg := config.GetConfig()
 
 	// 初始化日志
-	log, err := logger.NewLogger(cfg.Log)
+	log, err := logger.NewLoggerFromConfig(cfg.Log)
+
+	if err != nil {
+		log.Fatal("加载配置失败", "error", err)
+	}
+
 	if err != nil {
 		fmt.Printf("初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := log.Sync(); err != nil {
-			fmt.Printf("同步日志失败: %v\n", err)
+			log.Error("同步日志失败", "error", err)
 		}
 	}()
 
 	// 初始化监控指标
-	metricsCollector := metrics.NewMetrics(cfg.Metrics.Port, cfg.Metrics.Path)
-	if cfg.Metrics.PushGatewayURL != "" {
-		metricsCollector.StartPushGateway(cfg.Metrics.PushGatewayURL)
+	metricsCollector, err := metrics.NewMetrics(cfg.Metrics)
+	if cfg.Metrics.PushGateway != "" {
+		metricsCollector.StartPushGateway(cfg.Metrics.PushGateway)
 	}
 
 	// 初始化Redis客户端
-	redisClient := initRedis(cfg.Redis)
-	defer redisClient.Close()
+	redisClient := initRedis(cfg.Redis, log)
+	defer func(redisClient *clients.GoRedisAdapter) {
+		err := redisClient
+		if err != nil {
+
+		}
+	}(redisClient)
 
 	// 初始化Kafka客户端
-	kafkaClient := initKafka(cfg.Kafka)
-	defer kafkaClient.Close()
+	kafkaClient := initKafka(cfg.Kafka, log)
+	defer func(kafkaClient *kafka.Writer) {
+		err := kafkaClient.Close()
+		if err != nil {
+
+		}
+	}(kafkaClient)
 
 	// 初始化RTA客户端
 	rtaClient := rta.NewClient(
@@ -145,65 +119,61 @@ func main() {
 
 	// 启动服务器
 	go func() {
+		log.Info("启动DSP服务器", "port", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("启动服务器失败", "error", err)
-			os.Exit(1)
+			log.Fatal("DSP服务器启动失败", "error", err)
 		}
 	}()
 
-	// 等待中断信号
+	// 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	// 优雅关闭
+	log.Info("正在关闭DSP服务器...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("关闭服务器失败", "error", err)
-		os.Exit(1)
+		log.Fatal("DSP服务器关闭失败", "error", err)
 	}
+	log.Info("DSP服务器已关闭")
 }
 
 // initRedis 初始化Redis客户端
-func initRedis(cfg config.RedisConfig) RedisClient {
-	client := redis.NewClient(&redis.Options{
-		Addr:         cfg.Addr,
-		Password:     cfg.Password,
-		DB:           cfg.DB,
-		PoolSize:     cfg.PoolSize,
-		MinIdleConns: cfg.MinIdleConns,
-		MaxRetries:   cfg.MaxRetries,
-		DialTimeout:  cfg.DialTimeout,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-	})
+func initRedis(cfg config.RedisConfig, log *logger.Logger) *clients.GoRedisAdapter {
+	client, err := clients.NewRedisClient(cfg, log)
+	if err != nil {
+		log.Fatal("Redis初始化失败")
+	}
 
 	// 测试连接
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		fmt.Printf("连接Redis失败: %v\n", err)
-		os.Exit(1)
+	if err := (ctx).Err(); err != nil {
+		log.Fatal("Redis连接失败", "error", err)
 	}
 
-	return &RedisClientWrapper{client}
+	return client
 }
 
 // initKafka 初始化Kafka客户端
-func initKafka(cfg config.KafkaConfig) KafkaClient {
+func initKafka(cfg config.KafkaConfig, log *logger.Logger) *kafka.Writer {
 	writer := &kafka.Writer{
-		Addr:         kafka.TCP(cfg.Brokers...),
-		Topic:        cfg.Topic,
-		Balancer:     &kafka.LeastBytes{},
-		BatchSize:    cfg.BatchSize,
-		BatchTimeout: cfg.BatchTimeout,
-		Async:        cfg.Async,
+		Addr:        kafka.TCP(cfg.Brokers...),
+		Topic:       cfg.Topic,
+		Balancer:    &kafka.LeastBytes{},
+		MaxAttempts: cfg.MaxRetries,
 	}
 
-	return &KafkaWriter{writer}
+	// 测试连接
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := writer.WriteMessages(ctx, kafka.Message{}); err != nil {
+		log.Fatal("Kafka连接失败", "error", err)
+	}
+
+	return writer
 }
 
 // initRouter 初始化路由

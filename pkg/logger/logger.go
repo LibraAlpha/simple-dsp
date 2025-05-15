@@ -27,12 +27,12 @@ func NewLogger(zapLogger *zap.Logger) *Logger {
 func NewLoggerFromConfig(cfg config.LogConfig) (*Logger, error) {
 	// 创建基础配置
 	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		FunctionKey:    zapcore.OmitKey,
-		MessageKey:     "msg",
+		TimeKey:       "time",
+		LevelKey:      "level",
+		NameKey:       "logger",
+		CallerKey:     "caller",
+		FunctionKey:   zapcore.OmitKey,
+		MessageKey:    "msg",
 		StacktraceKey: "stacktrace",
 		LineEnding:    zapcore.DefaultLineEnding,
 		EncodeLevel:   zapcore.CapitalLevelEncoder,
@@ -128,6 +128,6 @@ func (l *Logger) Sync() error {
 }
 
 // With 返回带有额外字段的日志记录器
-func (l *Logger) With(keysAndValues ...interface{}) *Logger {
-	return &Logger{l.Logger.With(keysAndValues...)}
-} 
+func (l *Logger) With(msg string, keysAndValues ...interface{}) {
+	l.Logger.Sugar().Debugw(msg, keysAndValues...)
+}

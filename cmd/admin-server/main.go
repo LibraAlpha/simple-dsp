@@ -7,17 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-
 	"simple-dsp/internal/admin"
 	"simple-dsp/internal/budget"
 	"simple-dsp/internal/frequency"
 	"simple-dsp/internal/stats"
+	"simple-dsp/pkg/clients"
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
@@ -25,21 +21,26 @@ import (
 
 func main() {
 	// 1. 加载配置
-	if err := config.LoadConfig("configs/config.yaml"); err != nil {
-		fmt.Printf("加载配置失败: %v\n", err)
-		os.Exit(1)
-	}
 	cfg := config.GetConfig()
 
 	// 2. 初始化日志
-	log := initLogger(cfg.Log)
+	log, err := logger.NewLoggerFromConfig(cfg.Log)
+	if err != nil {
+		log.Fatal("初始化日志失败", "error", err)
+	}
 	defer log.Sync()
 
 	// 3. 初始化监控指标
-	metrics := initMetrics(cfg.Metrics)
+	metricsCollector := metrics.NewMetrics(cfg.Metrics.Port, cfg.Metrics.Path)
+	if cfg.Metrics.PushGateway != "" {
+		metricsCollector.StartPushGateway(cfg.Metrics.PushGateway)
+	}
 
 	// 4. 初始化Redis客户端
-	redisClient := initRedis(cfg.Redis)
+	redisClient, err := clients.NewRedisClient(cfg.Redis, log)
+	if err != nil {
+		log.Fatal("初始化Redis客户端失败", "error", err)
+	}
 	defer redisClient.Close()
 
 	// 5. 初始化动态配置管理器
@@ -54,21 +55,21 @@ func main() {
 	budgetMgr := budget.NewManager(
 		redisClient,
 		log,
-		metrics,
+		metricsCollector,
 	)
 
 	// 7.2 初始化数据统计服务
 	statsService := stats.NewService(
 		redisClient,
 		log,
-		metrics,
+		metricsCollector,
 	)
 
 	// 7.3 初始化频次控制器
 	freqCtrl := frequency.NewController(
 		redisClient,
 		log,
-		metrics,
+		metricsCollector,
 	)
 
 	// 7.4 初始化管理后台服务
@@ -76,7 +77,7 @@ func main() {
 		budgetMgr,
 		statsService,
 		log,
-		metrics,
+		metricsCollector,
 		freqCtrl,
 	)
 
@@ -113,54 +114,6 @@ func main() {
 	log.Info("管理后台服务器已关闭")
 }
 
-// initLogger 初始化日志
-func initLogger(cfg config.LogConfig) *logger.Logger {
-	log, err := logger.NewLoggerFromConfig(cfg)
-	if err != nil {
-		fmt.Printf("初始化日志失败: %v\n", err)
-		os.Exit(1)
-	}
-	return log
-}
-
-// initMetrics 初始化监控指标
-func initMetrics(cfg config.MetricsConfig) *metrics.Metrics {
-	if !cfg.Enabled {
-		return metrics.NewNoopMetrics()
-	}
-
-	m := metrics.NewMetrics(cfg.AdminPort, "/admin/metrics")
-	if cfg.PushGateway != "" {
-		go m.StartPushGateway(cfg.PushGateway)
-	}
-	return m
-}
-
-// initRedis 初始化Redis客户端
-func initRedis(cfg config.RedisConfig) *redis.Client {
-	client := redis.NewClient(&redis.Options{
-		Addr:         cfg.Addresses[0],
-		Password:     cfg.Password,
-		DB:           cfg.DB,
-		PoolSize:     cfg.PoolSize,
-		MinIdleConns: cfg.MinIdleConns,
-		MaxRetries:   cfg.MaxRetries,
-		DialTimeout:  cfg.DialTimeout,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-	})
-
-	// 测试连接
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := client.Ping(ctx).Err(); err != nil {
-		fmt.Printf("Redis连接失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	return client
-}
-
 // initRouter 初始化路由
 func initRouter(adminService *admin.Service, configHandler *admin.ConfigHandler) *gin.Engine {
 	router := gin.Default()
@@ -178,20 +131,4 @@ func initRouter(adminService *admin.Service, configHandler *admin.ConfigHandler)
 	}
 
 	return router
-}
-
-// getLogLevel 获取日志级别
-func getLogLevel(level string) zapcore.Level {
-	switch level {
-	case "debug":
-		return zapcore.DebugLevel
-	case "info":
-		return zapcore.InfoLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	default:
-		return zapcore.InfoLevel
-	}
 } 

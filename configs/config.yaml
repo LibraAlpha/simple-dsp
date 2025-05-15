@@ -92,3 +92,4 @@ metrics:
   port: 9090
   path: "/metrics"
   push_gateway: "http://pushgateway:9091"
+  http_enabled: true

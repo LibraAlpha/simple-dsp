@@ -3,9 +3,9 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"simple-dsp/pkg/clients"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
@@ -25,7 +25,7 @@ const (
 
 // Event 事件数据
 type Event struct {
-	EventType   EventType          `json:"event_type"`
+	EventType   EventType         `json:"event_type"`
 	RequestID   string            `json:"request_id"`
 	UserID      string            `json:"user_id"`
 	AdID        string            `json:"ad_id"`
@@ -43,18 +43,7 @@ type Collector struct {
 	logger      *logger.Logger
 	metrics     *metrics.Metrics
 	kafkaClient KafkaClient
-	redisClient RedisClient
-}
-
-// RedisClient Redis客户端接口
-type RedisClient interface {
-	Get(ctx context.Context, key string) *redis.StringCmd
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-	Incr(ctx context.Context, key string) *redis.IntCmd
-	IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd
-	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
-	Close() error
+	redisClient *clients.GoRedisAdapter
 }
 
 // KafkaClient Kafka客户端接口
@@ -65,7 +54,7 @@ type KafkaClient interface {
 }
 
 // NewCollector 创建新的数据统计收集器
-func NewCollector(kafkaClient KafkaClient, redisClient RedisClient, logger *logger.Logger, metrics *metrics.Metrics) *Collector {
+func NewCollector(kafkaClient KafkaClient, redisClient *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Collector {
 	return &Collector{
 		logger:      logger,
 		metrics:     metrics,
@@ -136,29 +125,29 @@ func (c *Collector) GetRealtimeStats(ctx context.Context, adID string) (*Realtim
 	}
 
 	return &RealtimeStats{
-		AdID:         adID,
-		Date:         date,
-		Impressions:  parseInt64(impCount),
-		Clicks:       parseInt64(clickCount),
-		Conversions:  parseInt64(convCount),
-		Cost:         parseFloat64(cost),
-		CTR:          calculateCTR(parseInt64(impCount), parseInt64(clickCount)),
-		CVR:          calculateCVR(parseInt64(clickCount), parseInt64(convCount)),
-		UpdateTime:   now,
+		AdID:        adID,
+		Date:        date,
+		Impressions: parseInt64(impCount),
+		Clicks:      parseInt64(clickCount),
+		Conversions: parseInt64(convCount),
+		Cost:        parseFloat64(cost),
+		CTR:         calculateCTR(parseInt64(impCount), parseInt64(clickCount)),
+		CVR:         calculateCVR(parseInt64(clickCount), parseInt64(convCount)),
+		UpdateTime:  now,
 	}, nil
 }
 
 // RealtimeStats 实时统计数据
 type RealtimeStats struct {
-	AdID         string    `json:"ad_id"`
-	Date         string    `json:"date"`
-	Impressions  int64     `json:"impressions"`
-	Clicks       int64     `json:"clicks"`
-	Conversions  int64     `json:"conversions"`
-	Cost         float64   `json:"cost"`
-	CTR          float64   `json:"ctr"`
-	CVR          float64   `json:"cvr"`
-	UpdateTime   time.Time `json:"update_time"`
+	AdID        string    `json:"ad_id"`
+	Date        string    `json:"date"`
+	Impressions int64     `json:"impressions"`
+	Clicks      int64     `json:"clicks"`
+	Conversions int64     `json:"conversions"`
+	Cost        float64   `json:"cost"`
+	CTR         float64   `json:"ctr"`
+	CVR         float64   `json:"cvr"`
+	UpdateTime  time.Time `json:"update_time"`
 }
 
 // updateRealtimeCounters 更新实时计数器
@@ -185,7 +174,7 @@ func (c *Collector) updateRealtimeCounters(ctx context.Context, event *Event) er
 // updateMetrics 更新监控指标
 func (c *Collector) updateMetrics(event *Event) {
 	labels := map[string]string{
-		"ad_id": event.AdID,
+		"ad_id":   event.AdID,
 		"slot_id": event.SlotID,
 	}
 
@@ -245,4 +234,4 @@ func calculateCVR(clicks, conversions int64) float64 {
 		return 0
 	}
 	return float64(conversions) / float64(clicks)
-} 
+}

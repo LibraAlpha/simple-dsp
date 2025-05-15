@@ -49,6 +49,8 @@ type TrafficConfig struct {
 // RTAConfig RTA服务配置
 type RTAConfig struct {
 	BaseURL    string        `mapstructure:"base_url"`
+	AppKey     string        `mapstructure:"app_key"`
+	AppSecret  string        `mapstructure:"app_secret"`
 	Timeout    time.Duration `mapstructure:"timeout"`
 	RetryTimes int           `mapstructure:"retry_times"`
 	RetryDelay time.Duration `mapstructure:"retry_delay"`
@@ -106,9 +108,18 @@ type RedisConfig struct {
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 }
 
+type ClusterNode struct {
+	ID    string
+	Host  string
+	Port  int
+	Role  string // "master" 或 "slave"
+	Slots []int  // 负责的哈希槽范围[2](@ref)
+}
+
 // KafkaConfig Kafka配置
 type KafkaConfig struct {
 	Brokers      []string      `mapstructure:"brokers"`
+	Topic        string        `mapstructure:"topic"`
 	GroupID      string        `mapstructure:"group_id"`
 	Version      string        `mapstructure:"version"`
 	MaxRetries   int           `mapstructure:"max_retries"`
@@ -131,6 +142,7 @@ type MetricsConfig struct {
 	Port        int    `mapstructure:"port"`
 	Path        string `mapstructure:"path"`
 	PushGateway string `mapstructure:"push_gateway"`
+	HTTPEnabled bool   `mapstructure:"http_enabled"`
 }
 
 var (

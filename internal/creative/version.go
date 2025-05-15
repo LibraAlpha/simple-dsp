@@ -169,4 +169,4 @@ func (vs *VersionService) getVersionKey(creativeID string, version int) string {
 
 func (vs *VersionService) getCurrentVersionKey(creativeID string) string {
 	return fmt.Sprintf("creative:current_version:%s", creativeID)
-} 
+}

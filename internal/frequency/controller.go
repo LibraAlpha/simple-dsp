@@ -3,17 +3,18 @@ package frequency
 import (
 	"context"
 	"fmt"
+	"github.com/go-redis/redis/v8"
+	"simple-dsp/pkg/clients"
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
 
 // Controller 频次控制器
 type Controller struct {
-	redis   *redis.Client
+	redis   *clients.GoRedisAdapter
 	logger  *logger.Logger
 	metrics *metrics.Metrics
 }
@@ -27,7 +28,7 @@ type Config struct {
 }
 
 // NewController 创建频次控制器
-func NewController(redis *redis.Client, logger *logger.Logger, metrics *metrics.Metrics) *Controller {
+func NewController(redis *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Controller {
 	return &Controller{
 		redis:   redis,
 		logger:  logger,
@@ -45,16 +46,16 @@ func (c *Controller) CheckImpression(ctx context.Context, userID string, adID st
 
 	// 生成键名
 	key := fmt.Sprintf("freq:imp:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
-	
+
 	// 检查频次
-	count, err := c.redis.Get(ctx, key).Int()
+	count, err := c.redis.Client.Get(ctx, key).Int()
 	if err != nil && err != redis.Nil {
 		return false, err
 	}
 
 	// 超过限制
 	if count >= config.ImpressionLimit {
-		c.metrics.FrequencyLimitExceeded.WithLabelValues("impression", adID).Inc()
+		c.metrics.Frequency.LimitExceeded.Inc()
 		return false, nil
 	}
 
@@ -65,16 +66,16 @@ func (c *Controller) CheckImpression(ctx context.Context, userID string, adID st
 func (c *Controller) RecordImpression(ctx context.Context, userID string, adID string) error {
 	// 生成键名
 	key := fmt.Sprintf("freq:imp:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
-	
+
 	// 增加计数
-	_, err := c.redis.Incr(ctx, key).Result()
+	_, err := c.redis.Client.Incr(ctx, key).Result()
 	if err != nil {
 		return err
 	}
 
 	// 设置过期时间
-	c.redis.Expire(ctx, key, 24*time.Hour)
-	
+	c.redis.Client.Expire(ctx, key, 24*time.Hour)
+
 	return nil
 }
 
@@ -88,16 +89,16 @@ func (c *Controller) CheckClick(ctx context.Context, userID string, adID string)
 
 	// 生成键名
 	key := fmt.Sprintf("freq:click:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
-	
+
 	// 检查频次
-	count, err := c.redis.Get(ctx, key).Int()
+	count, err := c.redis.Client.Get(ctx, key).Int()
 	if err != nil && err != redis.Nil {
 		return false, err
 	}
 
 	// 超过限制
 	if count >= config.ClickLimit {
-		c.metrics.FrequencyLimitExceeded.WithLabelValues("click", adID).Inc()
+		c.metrics.Frequency.LimitExceeded.Inc()
 		return false, nil
 	}
 
@@ -108,16 +109,16 @@ func (c *Controller) CheckClick(ctx context.Context, userID string, adID string)
 func (c *Controller) RecordClick(ctx context.Context, userID string, adID string) error {
 	// 生成键名
 	key := fmt.Sprintf("freq:click:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
-	
+
 	// 增加计数
-	_, err := c.redis.Incr(ctx, key).Result()
+	_, err := c.redis.Client.Incr(ctx, key).Result()
 	if err != nil {
 		return err
 	}
 
 	// 设置过期时间
-	c.redis.Expire(ctx, key, 24*time.Hour)
-	
+	c.redis.Client.Expire(ctx, key, 24*time.Hour)
+
 	return nil
 }
 
@@ -136,11 +137,11 @@ func (c *Controller) UpdateConfig(ctx context.Context, adID string, config *Conf
 		"impression_limit": strconv.Itoa(config.ImpressionLimit),
 		"click_limit":      strconv.Itoa(config.ClickLimit),
 		"time_window":      config.TimeWindow.String(),
-		"qps":             fmt.Sprintf("%f", config.QPS),
+		"qps":              fmt.Sprintf("%f", config.QPS),
 	}
 
 	// 使用 HSET 保存配置
-	if err := c.redis.HMSet(ctx, key, data).Err(); err != nil {
+	if err := c.redis.Client.HMSet(ctx, key, data).Err(); err != nil {
 		return err
 	}
 
@@ -159,7 +160,7 @@ func (c *Controller) getConfig(ctx context.Context, adID string) (*Config, error
 	key := fmt.Sprintf("freq:config:%s", adID)
 
 	// 获取配置
-	data, err := c.redis.HGetAll(ctx, key).Result()
+	data, err := c.redis.Client.HGetAll(ctx, key).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -167,10 +168,10 @@ func (c *Controller) getConfig(ctx context.Context, adID string) (*Config, error
 	// 如果配置不存在，使用默认配置
 	if len(data) == 0 {
 		return &Config{
-			ImpressionLimit: 10,  // 默认每天最多曝光10次
-			ClickLimit:      3,   // 默认每天最多点击3次
+			ImpressionLimit: 10, // 默认每天最多曝光10次
+			ClickLimit:      3,  // 默认每天最多点击3次
 			TimeWindow:      24 * time.Hour,
-			QPS:            100,  // 默认QPS 100
+			QPS:             100, // 默认QPS 100
 		}, nil
 	}
 
@@ -184,7 +185,7 @@ func (c *Controller) getConfig(ctx context.Context, adID string) (*Config, error
 		ImpressionLimit: impressionLimit,
 		ClickLimit:      clickLimit,
 		TimeWindow:      timeWindow,
-		QPS:            qps,
+		QPS:             qps,
 	}, nil
 }
 
@@ -202,4 +203,4 @@ func (c *Controller) validateConfig(config *Config) error {
 		return fmt.Errorf("QPS必须大于0")
 	}
 	return nil
-} 
+}
