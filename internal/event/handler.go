@@ -1,3 +1,35 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: handler.go
+ * Project: simple-dsp
+ * Description: 广告事件处理器，负责处理展示、点击、转化等事件
+ * 
+ * 主要功能:
+ * - 处理广告展示事件
+ * - 处理广告点击事件
+ * - 处理广告转化事件
+ * - 提供事件统计查询
+ * 
+ * 实现细节:
+ * - 使用Kafka异步处理事件
+ * - 实现事件去重和验证
+ * - 支持实时事件处理
+ * - 提供事件统计接口
+ * 
+ * 依赖关系:
+ * - github.com/gin-gonic/gin
+ * - simple-dsp/internal/stats
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ * 
+ * 注意事项:
+ * - 注意事件处理的幂等性
+ * - 合理设置事件超时
+ * - 注意处理事件顺序
+ * - 确保数据一致性
+ */
+
 package event
 
 import (

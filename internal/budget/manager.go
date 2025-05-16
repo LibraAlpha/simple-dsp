@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: manager.go
+ * Project: simple-dsp
+ * Description: 预算管理器实现，负责广告预算的控制和管理
+ * 
+ * 主要功能:
+ * - 管理广告主预算
+ * - 控制预算消耗
+ * - 提供预算查询接口
+ * - 实现预算预警
+ * 
+ * 实现细节:
+ * - 使用Redis存储预算数据
+ * - 实现原子预算扣减
+ * - 支持多级预算控制
+ * - 提供预算统计功能
+ * 
+ * 依赖关系:
+ * - simple-dsp/pkg/clients
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ * 
+ * 注意事项:
+ * - 确保预算扣减的原子性
+ * - 注意处理并发访问
+ * - 合理设置预算预警阈值
+ * - 注意数据一致性
+ */
+
 package budget
 
 import (

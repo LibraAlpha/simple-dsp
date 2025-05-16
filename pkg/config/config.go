@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: config.go
+ * Project: simple-dsp
+ * Description: 配置管理模块，负责系统配置的加载和管理
+ *
+ * 主要功能:
+ * - 加载系统配置
+ * - 管理动态配置
+ * - 提供配置访问接口
+ * - 支持配置热更新
+ *
+ * 实现细节:
+ * - 支持YAML配置文件
+ * - 实现配置验证
+ * - 支持环境变量覆盖
+ * - 提供配置监听机制
+ *
+ * 依赖关系:
+ * - gopkg.in/yaml.v3
+ * - simple-dsp/pkg/clients
+ * - simple-dsp/pkg/logger
+ *
+ * 注意事项:
+ * - 注意配置的安全性
+ * - 合理设置默认值
+ * - 注意配置变更通知
+ * - 确保配置一致性
+ */
+
 package config
 
 import (

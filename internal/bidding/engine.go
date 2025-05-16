@@ -1,3 +1,35 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: engine.go
+ * Project: simple-dsp
+ * Description: 竞价引擎核心实现，负责处理广告竞价逻辑
+ * 
+ * 主要功能:
+ * - 处理广告竞价请求
+ * - 执行出价策略筛选
+ * - 计算广告出价
+ * - 进行预算和频次控制
+ * 
+ * 实现细节:
+ * - 支持多策略并行竞价
+ * - 实现eCPM排序和选择
+ * - 集成预算和频次控制
+ * - 支持实时竞价决策
+ * 
+ * 依赖关系:
+ * - simple-dsp/internal/budget
+ * - simple-dsp/internal/frequency
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ * 
+ * 注意事项:
+ * - 注意竞价性能优化
+ * - 合理设置超时控制
+ * - 注意处理并发请求
+ * - 确保预算控制准确性
+ */
+
 package bidding
 
 import (

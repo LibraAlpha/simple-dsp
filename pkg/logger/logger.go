@@ -1,3 +1,33 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: logger.go
+ * Project: simple-dsp
+ * Description: 日志管理模块，提供统一的日志记录功能
+ *
+ * 主要功能:
+ * - 提供日志记录接口
+ * - 支持多级别日志
+ * - 实现日志轮转
+ * - 提供结构化日志
+ *
+ * 实现细节:
+ * - 使用zap实现日志记录
+ * - 支持JSON和文本格式
+ * - 实现日志分级输出
+ * - 提供日志采样功能
+ *
+ * 依赖关系:
+ * - go.uber.org/zap
+ * - simple-dsp/pkg/config
+ *
+ * 注意事项:
+ * - 注意日志性能影响
+ * - 合理设置日志级别
+ * - 注意日志文件管理
+ * - 确保日志安全性
+ */
+
 package logger
 
 import (

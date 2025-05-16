@@ -1,7 +1,39 @@
-// metrics.go
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: metrics.go
+ * Project: simple-dsp
+ * Description: 指标监控模块，提供系统性能指标收集和展示
+ *
+ * 主要功能:
+ * - 收集系统性能指标
+ * - 提供指标查询接口
+ * - 支持指标告警
+ * - 集成Prometheus
+ *
+ * 实现细节:
+ * - 使用Prometheus客户端
+ * - 实现自定义指标
+ * - 支持指标聚合
+ * - 提供PushGateway集成
+ *
+ * 依赖关系:
+ * - github.com/prometheus/client_golang
+ * - simple-dsp/pkg/config
+ * - simple-dsp/pkg/logger
+ *
+ * 注意事项:
+ * - 注意指标命名规范
+ * - 合理设置采集周期
+ * - 注意指标数据量
+ * - 确保指标准确性
+ */
+
+// Package metrics metrics.go
 package metrics
 
 import (
+	"errors"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"net/http"
@@ -70,16 +102,29 @@ type (
 		DeleteErrors  prometheus.Counter
 		DeleteLatency prometheus.Histogram
 	}
+
+	EventMetrics struct {
+		Impressions *prometheus.CounterVec
+		Clicks      *prometheus.CounterVec
+		Conversions *prometheus.CounterVec
+	}
+
+	BudgetMetrics struct {
+		Cost        *prometheus.CounterVec
+		DailyBudget *prometheus.CounterVec
+	}
 )
 
 type Metrics struct {
 	HTTP      *HTTPMetrics
 	GRPC      *GRPCMetrics
 	Bid       *BidMetrics
+	Budget    *BudgetMetrics
 	Frequency *FrequencyMetrics
 	Creative  *CreativeMetrics
 	Cache     *CacheMetrics
 	Storage   *StorageMetrics
+	Events    *EventMetrics
 	server    *http.Server
 }
 
@@ -92,6 +137,8 @@ type NoopMetrics struct {
 	Creative  *CreativeMetrics
 	Cache     *CacheMetrics
 	Storage   *StorageMetrics
+	Events    *EventMetrics
+	Budget    *BudgetMetrics
 }
 
 func NewNoopMetrics() *NoopMetrics {
@@ -103,6 +150,8 @@ func NewNoopMetrics() *NoopMetrics {
 		Creative:  &CreativeMetrics{},
 		Cache:     &CacheMetrics{},
 		Storage:   &StorageMetrics{},
+		Events:    &EventMetrics{},
+		Budget:    &BudgetMetrics{},
 	}
 }
 
@@ -306,9 +355,33 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 				Buckets: prometheus.DefBuckets,
 			}),
 		},
+
+		Events: &EventMetrics{
+			Impressions: promauto.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: "dsp_event_impression",
+					Help: "曝光数",
+				},
+				[]string{"ad_id", "slot_id"},
+			),
+			Clicks: promauto.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: "dsp_event_clicks",
+					Help: "点击数",
+				},
+				[]string{"ad_id", "slot_id"},
+			),
+			Conversions: promauto.NewCounterVec(
+				prometheus.CounterOpts{
+					Name: "dsp_event_conversions",
+					Help: "点击数",
+				},
+				[]string{"ad_id", "slot_id"},
+			),
+		},
 	}
 
-	// 注册全局采集器（网页3）
+	// 注册全局采集器
 	registry.MustRegister(
 		metrics.HTTP.RequestTotal,
 		metrics.HTTP.RequestDuration,
@@ -345,6 +418,11 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 		metrics.Storage.DeleteTotal,
 		metrics.Storage.DeleteErrors,
 		metrics.Storage.DeleteLatency,
+		metrics.Events.Clicks,
+		metrics.Events.Impressions,
+		metrics.Events.Conversions,
+		metrics.Budget.DailyBudget,
+		metrics.Budget.Cost,
 	)
 
 	if cfg.HTTPEnabled {
@@ -357,7 +435,7 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 		}
 
 		go func() {
-			if err := metrics.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := metrics.server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) && err != nil {
 				fmt.Printf("Metrics server error: %v\n", err)
 			}
 		}()
@@ -366,7 +444,7 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 	return metrics, nil
 }
 
-// 关闭服务（网页6）
+// Close 关闭服务
 func (m *Metrics) Close() error {
 	if m.server != nil {
 		return m.server.Close()
@@ -374,7 +452,7 @@ func (m *Metrics) Close() error {
 	return nil
 }
 
-// 推送指标到Gateway（网页5）
+// StartPushGateway 推送指标到Gateway
 func (m *Metrics) StartPushGateway(url string) {
 	pusher := push.New(url, "dsp_metrics")
 
@@ -414,6 +492,11 @@ func (m *Metrics) StartPushGateway(url string) {
 		m.Storage.DeleteTotal,
 		m.Storage.DeleteErrors,
 		m.Storage.DeleteLatency,
+		m.Events.Clicks,
+		m.Events.Impressions,
+		m.Events.Conversions,
+		m.Budget.DailyBudget,
+		m.Budget.Cost,
 	}
 
 	for _, c := range collectors {

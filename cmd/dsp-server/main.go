@@ -1,11 +1,44 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: main.go
+ * Project: simple-dsp
+ * Description: DSP服务器主程序，负责初始化和启动DSP服务
+ *
+ * 主要功能:
+ * - 初始化系统配置和日志
+ * - 初始化各类客户端连接（Redis、Kafka等）
+ * - 初始化业务模块（竞价引擎、预算管理等）
+ * - 启动HTTP服务器和优雅关闭
+ *
+ * 实现细节:
+ * - 使用gin框架提供HTTP服务
+ * - 实现优雅启动和关闭
+ * - 统一的错误处理和日志记录
+ * - 模块化的服务初始化
+ *
+ * 依赖关系:
+ * - github.com/gin-gonic/gin
+ * - simple-dsp/internal/* (所有内部业务模块)
+ * - simple-dsp/pkg/* (所有基础包)
+ *
+ * 注意事项:
+ * - 需要正确配置所有依赖服务
+ * - 注意处理服务优雅关闭
+ * - 合理设置超时参数
+ * - 注意资源释放和错误处理
+ */
+
 package main
 
 import (
 	"context"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"net/http"
 	"os"
 	"os/signal"
+	"simple-dsp/pkg/clients"
 	"syscall"
 	"time"
 
@@ -18,7 +51,6 @@ import (
 	"simple-dsp/internal/rta"
 	"simple-dsp/internal/stats"
 	"simple-dsp/internal/traffic"
-	"simple-dsp/pkg/clients"
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
@@ -52,8 +84,8 @@ func main() {
 	}
 
 	// 初始化Redis客户端
-	redisClient := initRedis(cfg.Redis, log)
-	defer func(redisClient *clients.GoRedisAdapter) {
+	redisClient, err := clients.InitRedis(cfg, log)
+	defer func(redisClient *redis.Client) {
 		err := redisClient
 		if err != nil {
 
@@ -61,7 +93,7 @@ func main() {
 	}(redisClient)
 
 	// 初始化Kafka客户端
-	kafkaClient := initKafka(cfg.Kafka, log)
+	kafkaClient := clients.InitKafka(cfg.Kafka, log)
 	defer func(kafkaClient *kafka.Writer) {
 		err := kafkaClient.Close()
 		if err != nil {
@@ -138,42 +170,6 @@ func main() {
 		log.Fatal("DSP服务器关闭失败", "error", err)
 	}
 	log.Info("DSP服务器已关闭")
-}
-
-// initRedis 初始化Redis客户端
-func initRedis(cfg config.RedisConfig, log *logger.Logger) *clients.GoRedisAdapter {
-	client, err := clients.NewRedisClient(cfg, log)
-	if err != nil {
-		log.Fatal("Redis初始化失败")
-	}
-
-	// 测试连接
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := (ctx).Err(); err != nil {
-		log.Fatal("Redis连接失败", "error", err)
-	}
-
-	return client
-}
-
-// initKafka 初始化Kafka客户端
-func initKafka(cfg config.KafkaConfig, log *logger.Logger) *kafka.Writer {
-	writer := &kafka.Writer{
-		Addr:        kafka.TCP(cfg.Brokers...),
-		Topic:       cfg.Topic,
-		Balancer:    &kafka.LeastBytes{},
-		MaxAttempts: cfg.MaxRetries,
-	}
-
-	// 测试连接
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := writer.WriteMessages(ctx, kafka.Message{}); err != nil {
-		log.Fatal("Kafka连接失败", "error", err)
-	}
-
-	return writer
 }
 
 // initRouter 初始化路由

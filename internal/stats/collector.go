@@ -1,12 +1,44 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: collector.go
+ * Project: simple-dsp
+ * Description: 数据统计收集器，负责收集和处理广告数据
+ *
+ * 主要功能:
+ * - 收集广告展示数据
+ * - 收集广告点击数据
+ * - 收集广告转化数据
+ * - 提供数据统计接口
+ *
+ * 实现细节:
+ * - 使用Kafka异步收集数据
+ * - 实现数据聚合和统计
+ * - 支持实时数据查询
+ * - 提供数据导出功能
+ *
+ * 依赖关系:
+ * - simple-dsp/pkg/clients
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ *
+ * 注意事项:
+ * - 注意数据收集的实时性
+ * - 合理设置数据缓存
+ * - 注意处理数据一致性
+ * - 确保数据安全性
+ */
+
 package stats
 
 import (
 	"context"
 	"encoding/json"
-	"simple-dsp/pkg/clients"
+	"github.com/go-redis/redis/v8"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/segmentio/kafka-go"
 	"time"
 
-	"github.com/segmentio/kafka-go"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
@@ -42,23 +74,16 @@ type Event struct {
 type Collector struct {
 	logger      *logger.Logger
 	metrics     *metrics.Metrics
-	kafkaClient KafkaClient
-	redisClient *clients.GoRedisAdapter
-}
-
-// KafkaClient Kafka客户端接口
-type KafkaClient interface {
-	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
-	SendMessage(ctx context.Context, topic string, key string, value []byte) error
-	Close() error
+	kafkaClient *kafka.Writer
+	redisClient *redis.Client
 }
 
 // NewCollector 创建新的数据统计收集器
-func NewCollector(kafkaClient KafkaClient, redisClient *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Collector {
+func NewCollector(kafkawriter *kafka.Writer, redisClient *redis.Client, logger *logger.Logger, metrics *metrics.Metrics) *Collector {
 	return &Collector{
 		logger:      logger,
 		metrics:     metrics,
-		kafkaClient: kafkaClient,
+		kafkaClient: kafkawriter,
 		redisClient: redisClient,
 	}
 }
@@ -74,7 +99,7 @@ func (c *Collector) CollectEvent(ctx context.Context, event *Event) error {
 
 	// 发送到Kafka
 	topic := getEventTopic(event.EventType)
-	if err := c.kafkaClient.SendMessage(ctx, topic, event.RequestID, eventBytes); err != nil {
+	if err := c.kafkaClient.WriteMessages(ctx, kafka.Message{eventBytes}); err != nil {
 		c.logger.Error("发送事件到Kafka失败", "error", err, "event_type", event.EventType)
 		return err
 	}
@@ -98,31 +123,19 @@ func (c *Collector) GetRealtimeStats(ctx context.Context, adID string) (*Realtim
 
 	// 获取展示数
 	impKey := getRealtimeKey(adID, date, EventImpression)
-	impCount, err := c.redisClient.Get(ctx, impKey)
-	if err != nil {
-		return nil, err
-	}
+	impCount := c.redisClient.Get(ctx, impKey).String()
 
 	// 获取点击数
 	clickKey := getRealtimeKey(adID, date, EventClick)
-	clickCount, err := c.redisClient.Get(ctx, clickKey)
-	if err != nil {
-		return nil, err
-	}
+	clickCount := c.redisClient.Get(ctx, clickKey).String()
 
 	// 获取转化数
 	convKey := getRealtimeKey(adID, date, EventConversion)
-	convCount, err := c.redisClient.Get(ctx, convKey)
-	if err != nil {
-		return nil, err
-	}
+	convCount := c.redisClient.Get(ctx, convKey).String()
 
 	// 获取消耗
 	costKey := getRealtimeCostKey(adID, date)
-	cost, err := c.redisClient.Get(ctx, costKey)
-	if err != nil {
-		return nil, err
-	}
+	cost := c.redisClient.Get(ctx, costKey).String()
 
 	return &RealtimeStats{
 		AdID:        adID,
@@ -156,16 +169,12 @@ func (c *Collector) updateRealtimeCounters(ctx context.Context, event *Event) er
 
 	// 更新事件计数
 	eventKey := getRealtimeKey(event.AdID, date, event.EventType)
-	if _, err := c.redisClient.IncrBy(ctx, eventKey, 1); err != nil {
-		return err
-	}
+	_ = c.redisClient.IncrBy(ctx, eventKey, 1)
 
 	// 如果是展示事件，更新消耗
 	if event.EventType == EventImpression && event.WinPrice > 0 {
 		costKey := getRealtimeCostKey(event.AdID, date)
-		if _, err := c.redisClient.IncrBy(ctx, costKey, int64(event.WinPrice*100)); err != nil {
-			return err
-		}
+		_ = c.redisClient.IncrBy(ctx, costKey, int64(event.WinPrice*100))
 	}
 
 	return nil
@@ -180,14 +189,23 @@ func (c *Collector) updateMetrics(event *Event) {
 
 	switch event.EventType {
 	case EventImpression:
-		c.metrics.Impressions.WithLabelValues(labels["ad_id"], labels["slot_id"]).Inc()
+		c.metrics.Events.Impressions.With(prometheus.Labels{
+			"ad_id":   event.AdID,
+			"slot_id": event.SlotID,
+		}).Inc()
 		if event.WinPrice > 0 {
-			c.metrics.Cost.WithLabelValues(labels["ad_id"]).Add(event.WinPrice)
+			costCents := event.WinPrice * 100 // 转换为整数单位避免浮点精度问题
+			c.metrics.Budget.Cost.With(prometheus.Labels{
+				"ad_id": event.AdID,
+				"type":  "impression_cost", // 区分成本类型
+			}).Add(float64(costCents))
+		} else {
+			//c.metrics.Errors.WithLabelValues("invalid_winprice").Inc()
 		}
 	case EventClick:
-		c.metrics.Clicks.WithLabelValues(labels["ad_id"], labels["slot_id"]).Inc()
+		c.metrics.Events.Clicks.WithLabelValues(labels["ad_id"], labels["slot_id"]).Inc()
 	case EventConversion:
-		c.metrics.Conversions.WithLabelValues(labels["ad_id"], labels["slot_id"]).Inc()
+		c.metrics.Events.Conversions.WithLabelValues(labels["ad_id"], labels["slot_id"]).Inc()
 	}
 }
 
@@ -216,7 +234,10 @@ func parseInt64(s string) int64 {
 // parseFloat64 解析字符串为float64
 func parseFloat64(s string) float64 {
 	var f float64
-	json.Unmarshal([]byte(s), &f)
+	err := json.Unmarshal([]byte(s), &f)
+	if err != nil {
+		return 0
+	}
 	return f
 }
 

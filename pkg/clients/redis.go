@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: redis.go
+ * Project: simple-dsp
+ * Description: Redis客户端封装，提供统一的Redis操作接口
+ *
+ * 主要功能:
+ * - 提供统一的Redis客户端接口定义
+ * - 支持单机和集群模式的Redis连接
+ * - 封装常用的Redis操作方法
+ * - 提供连接池管理和错误处理
+ *
+ * 实现细节:
+ * - 使用go-redis库实现底层连接
+ * - 通过适配器模式封装原生客户端
+ * - 支持自动识别单机/集群模式
+ * - 实现标准的Redis操作接口
+ *
+ * 依赖关系:
+ * - github.com/go-redis/redis/v8
+ * - simple-dsp/pkg/config
+ * - simple-dsp/pkg/logger
+ *
+ * 注意事项:
+ * - 需要正确配置Redis连接参数
+ * - 集群模式下不支持DB选择
+ * - 所有操作都需要传入context
+ * - 注意处理连接池资源释放
+ */
+
 package clients
 
 import (
@@ -10,24 +41,32 @@ import (
 	"simple-dsp/pkg/logger"
 )
 
-// GoRedisAdapter 适配器实现标准 Redis 客户端
-type GoRedisAdapter struct {
-	Client redis.UniversalClient // 支持单机和集群模式
-}
+// InitRedis initRedis 初始化Redis客户端
+func InitRedis(cfg *config.Config, log *logger.Logger) (*redis.Client, error) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:         cfg.Redis.Addresses[0],
+		Password:     cfg.Redis.Password,
+		DB:           cfg.Redis.DB,
+		PoolSize:     cfg.Redis.PoolSize,
+		MinIdleConns: cfg.Redis.MinIdleConns,
+		MaxRetries:   cfg.Redis.MaxRetries,
+		DialTimeout:  cfg.Redis.DialTimeout,
+		ReadTimeout:  cfg.Redis.ReadTimeout,
+		WriteTimeout: cfg.Redis.WriteTimeout,
+	})
 
-// RedisClient Redis客户端接口
-type RedisClient interface {
-	Get(ctx context.Context, key string) (string, error)
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error
-	Del(ctx context.Context, keys ...string) (int64, error)
-	Incr(ctx context.Context, key string) (int64, error)
-	IncrBy(ctx context.Context, key string, value int64) (int64, error)
-	Expire(ctx context.Context, key string, expiration time.Duration) (bool, error)
-	Close() error
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Fatal("Redis连接失败", "error", err)
+	}
+
+	return rdb, nil
 }
 
 // NewRedisClient 初始化 Redis 客户端（自动适配单机/集群）
-func NewRedisClient(cfg config.RedisConfig, log *logger.Logger) (*GoRedisAdapter, error) {
+func NewRedisClient(cfg config.RedisConfig, log *logger.Logger) (redis.UniversalClient, error) {
 	var baseClient redis.UniversalClient
 
 	// 根据配置选择部署模式
@@ -66,42 +105,5 @@ func NewRedisClient(cfg config.RedisConfig, log *logger.Logger) (*GoRedisAdapter
 		return "standalone"
 	}())
 
-	return &GoRedisAdapter{Client: baseClient}, nil
-}
-
-func (a *GoRedisAdapter) Get(ctx context.Context, key string) (string, error) {
-	val, err := a.Client.Get(ctx, key).Result()
-	if err == redis.Nil { // 处理 key 不存在的情况（网页3）
-		return "", nil
-	}
-	return val, err
-}
-
-func (a *GoRedisAdapter) Set(ctx context.Context, key string, value interface{}, exp time.Duration) error {
-	return a.Client.Set(ctx, key, value, exp).Err()
-}
-
-func (a *GoRedisAdapter) Del(ctx context.Context, keys ...string) (int64, error) {
-	// 将字符串切片转换为[]interface{}
-	redisKeys := make([]interface{}, len(keys))
-	for i, k := range keys {
-		redisKeys[i] = k
-	}
-
-	// 调用go-redis的Del方法（实际执行UNLINK或DEL命令）
-	cmd := a.Client.Del(ctx, keys...)
-	return cmd.Result() // 返回(int64, error)
-}
-
-func (a *GoRedisAdapter) Incr(ctx context.Context, key string) (int64, error) {
-	return a.Client.Incr(ctx, key).Result()
-}
-
-func (a *GoRedisAdapter) IncrBy(ctx context.Context, key string, value int64) (int64, error) {
-	// 必须使用String序列化器
-	return a.Client.IncrBy(ctx, key, value).Result()
-}
-
-func (a *GoRedisAdapter) Close() error {
-	return a.Client.Close()
+	return baseClient, nil
 }

@@ -1,3 +1,36 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: handler.go
+ * Project: simple-dsp
+ * Description: 流量处理器，负责处理广告请求和响应
+ * 
+ * 主要功能:
+ * - 处理广告请求
+ * - 调用RTA服务
+ * - 执行竞价流程
+ * - 返回广告响应
+ * 
+ * 实现细节:
+ * - 使用gin框架处理HTTP请求
+ * - 实现请求参数验证
+ * - 支持请求限流控制
+ * - 提供性能监控
+ * 
+ * 依赖关系:
+ * - github.com/gin-gonic/gin
+ * - simple-dsp/internal/bidding
+ * - simple-dsp/internal/rta
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ * 
+ * 注意事项:
+ * - 注意请求处理的性能
+ * - 合理设置超时控制
+ * - 注意处理并发请求
+ * - 确保响应及时性
+ */
+
 package traffic
 
 import (

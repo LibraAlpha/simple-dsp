@@ -1,10 +1,40 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: controller.go
+ * Project: simple-dsp
+ * Description: 广告频次控制器，负责控制广告展示频次
+ *
+ * 主要功能:
+ * - 控制用户广告展示频次
+ * - 实现频次限制策略
+ * - 提供频次查询接口
+ * - 支持多维度频次控制
+ *
+ * 实现细节:
+ * - 使用Redis存储频次数据
+ * - 实现滑动窗口计数
+ * - 支持多级频次控制
+ * - 提供实时频次统计
+ *
+ * 依赖关系:
+ * - simple-dsp/pkg/clients
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ *
+ * 注意事项:
+ * - 注意频次计算的准确性
+ * - 合理设置缓存过期时间
+ * - 注意处理并发访问
+ * - 确保数据一致性
+ */
+
 package frequency
 
 import (
 	"context"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"simple-dsp/pkg/clients"
 	"strconv"
 	"time"
 
@@ -14,7 +44,7 @@ import (
 
 // Controller 频次控制器
 type Controller struct {
-	redis   *clients.GoRedisAdapter
+	redis   *redis.Client
 	logger  *logger.Logger
 	metrics *metrics.Metrics
 }
@@ -28,7 +58,7 @@ type Config struct {
 }
 
 // NewController 创建频次控制器
-func NewController(redis *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Controller {
+func NewController(redis *redis.Client, logger *logger.Logger, metrics *metrics.Metrics) *Controller {
 	return &Controller{
 		redis:   redis,
 		logger:  logger,
@@ -48,7 +78,7 @@ func (c *Controller) CheckImpression(ctx context.Context, userID string, adID st
 	key := fmt.Sprintf("freq:imp:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
 
 	// 检查频次
-	count, err := c.redis.Client.Get(ctx, key).Int()
+	count, err := c.redis.Get(ctx, key).Int()
 	if err != nil && err != redis.Nil {
 		return false, err
 	}
@@ -68,13 +98,13 @@ func (c *Controller) RecordImpression(ctx context.Context, userID string, adID s
 	key := fmt.Sprintf("freq:imp:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
 
 	// 增加计数
-	_, err := c.redis.Client.Incr(ctx, key).Result()
+	_, err := c.redis.Incr(ctx, key).Result()
 	if err != nil {
 		return err
 	}
 
 	// 设置过期时间
-	c.redis.Client.Expire(ctx, key, 24*time.Hour)
+	c.redis.Expire(ctx, key, 24*time.Hour)
 
 	return nil
 }
@@ -91,7 +121,7 @@ func (c *Controller) CheckClick(ctx context.Context, userID string, adID string)
 	key := fmt.Sprintf("freq:click:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
 
 	// 检查频次
-	count, err := c.redis.Client.Get(ctx, key).Int()
+	count, err := c.redis.Get(ctx, key).Int()
 	if err != nil && err != redis.Nil {
 		return false, err
 	}
@@ -111,13 +141,13 @@ func (c *Controller) RecordClick(ctx context.Context, userID string, adID string
 	key := fmt.Sprintf("freq:click:%s:%s:%s", userID, adID, time.Now().Format("20060102"))
 
 	// 增加计数
-	_, err := c.redis.Client.Incr(ctx, key).Result()
+	_, err := c.redis.Incr(ctx, key).Result()
 	if err != nil {
 		return err
 	}
 
 	// 设置过期时间
-	c.redis.Client.Expire(ctx, key, 24*time.Hour)
+	c.redis.Expire(ctx, key, 24*time.Hour)
 
 	return nil
 }
@@ -141,7 +171,7 @@ func (c *Controller) UpdateConfig(ctx context.Context, adID string, config *Conf
 	}
 
 	// 使用 HSET 保存配置
-	if err := c.redis.Client.HMSet(ctx, key, data).Err(); err != nil {
+	if err := c.redis.HMSet(ctx, key, data).Err(); err != nil {
 		return err
 	}
 
@@ -160,7 +190,7 @@ func (c *Controller) getConfig(ctx context.Context, adID string) (*Config, error
 	key := fmt.Sprintf("freq:config:%s", adID)
 
 	// 获取配置
-	data, err := c.redis.Client.HGetAll(ctx, key).Result()
+	data, err := c.redis.HGetAll(ctx, key).Result()
 	if err != nil {
 		return nil, err
 	}

@@ -1,3 +1,36 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: main.go
+ * Project: simple-dsp
+ * Description: 管理后台服务器主程序，提供系统管理和监控功能
+ * 
+ * 主要功能:
+ * - 提供系统配置管理接口
+ * - 提供数据统计和监控接口
+ * - 提供预算和频次控制管理
+ * - 提供系统状态查询接口
+ * 
+ * 实现细节:
+ * - 使用gin框架提供HTTP服务
+ * - 实现配置的动态管理
+ * - 提供实时监控指标
+ * - 支持系统状态查询
+ * 
+ * 依赖关系:
+ * - github.com/gin-gonic/gin
+ * - simple-dsp/internal/admin
+ * - simple-dsp/internal/budget
+ * - simple-dsp/internal/stats
+ * - simple-dsp/pkg/* (所有基础包)
+ * 
+ * 注意事项:
+ * - 需要正确配置管理权限
+ * - 注意保护敏感配置信息
+ * - 合理设置接口访问限制
+ * - 注意处理并发访问
+ */
+
 package main
 
 import (

@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2024 Simple DSP
+ *
+ * File: client.go
+ * Project: simple-dsp
+ * Description: RTA服务客户端，负责与实时竞价服务交互
+ * 
+ * 主要功能:
+ * - 调用RTA服务进行用户定向
+ * - 处理RTA服务响应
+ * - 实现请求重试机制
+ * - 提供性能监控
+ * 
+ * 实现细节:
+ * - 使用HTTP客户端调用RTA服务
+ * - 实现请求签名验证
+ * - 支持请求超时控制
+ * - 提供性能指标收集
+ * 
+ * 依赖关系:
+ * - net/http
+ * - simple-dsp/pkg/metrics
+ * - simple-dsp/pkg/logger
+ * 
+ * 注意事项:
+ * - 注意处理服务超时
+ * - 合理设置重试策略
+ * - 注意保护密钥安全
+ * - 监控服务性能
+ */
+
 package rta
 
 import (
