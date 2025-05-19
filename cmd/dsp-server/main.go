@@ -33,6 +33,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
 	"net/http"
@@ -152,7 +153,7 @@ func main() {
 	// 启动服务器
 	go func() {
 		log.Info("启动DSP服务器", "port", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal("DSP服务器启动失败", "error", err)
 		}
 	}()

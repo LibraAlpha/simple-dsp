@@ -4,25 +4,25 @@
  * File: engine.go
  * Project: simple-dsp
  * Description: 竞价引擎核心实现，负责处理广告竞价逻辑
- * 
+ *
  * 主要功能:
  * - 处理广告竞价请求
  * - 执行出价策略筛选
  * - 计算广告出价
  * - 进行预算和频次控制
- * 
+ *
  * 实现细节:
  * - 支持多策略并行竞价
  * - 实现eCPM排序和选择
  * - 集成预算和频次控制
  * - 支持实时竞价决策
- * 
+ *
  * 依赖关系:
  * - simple-dsp/internal/budget
  * - simple-dsp/internal/frequency
  * - simple-dsp/pkg/metrics
  * - simple-dsp/pkg/logger
- * 
+ *
  * 注意事项:
  * - 注意竞价性能优化
  * - 合理设置超时控制
@@ -112,7 +112,7 @@ func NewEngine(
 func (e *Engine) ProcessBid(ctx context.Context, req BidRequest) (*BidResponse, error) {
 	startTime := time.Now()
 	defer func() {
-		e.metrics.BidDuration.Observe(time.Since(startTime).Seconds())
+		e.metrics.Bid.Duration.Observe(time.Since(startTime).Seconds())
 	}()
 
 	// 防御性编程：空请求检查
@@ -121,7 +121,7 @@ func (e *Engine) ProcessBid(ctx context.Context, req BidRequest) (*BidResponse, 
 	}
 
 	// 获取出价策略列表
-	strategies, err, _ := e.repository.ListBidStrategies(ctx, BidStrategyFilter{
+	strategies, _, err := e.repository.ListBidStrategies(ctx, BidStrategyFilter{
 		Page:     1,
 		PageSize: 100,
 	})

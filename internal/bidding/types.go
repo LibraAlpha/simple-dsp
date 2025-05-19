@@ -4,23 +4,23 @@
  * File: types.go
  * Project: simple-dsp
  * Description: 竞价引擎相关的类型定义和接口声明
- * 
+ *
  * 主要功能:
  * - 定义竞价请求和响应结构
  * - 定义广告位和策略类型
  * - 声明数据访问接口
  * - 定义错误类型和常量
- * 
+ *
  * 实现细节:
  * - 使用Go标准类型定义
  * - 实现错误类型封装
  * - 定义通用接口
  * - 提供类型转换方法
- * 
+ *
  * 依赖关系:
  * - time
  * - simple-dsp/pkg/metrics
- * 
+ *
  * 注意事项:
  * - 保持类型定义的一致性
  * - 注意字段的序列化
@@ -83,21 +83,21 @@ type BidStrategyFilter struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"page_size"`
 	BidType  string `json:"bid_type"`
-	MinPrice int    `json:"min_price"`
-	MaxPrice int    `json:"max_type"`
+	MinPrice *int   `json:"min_price"`
+	MaxPrice *int   `json:"max_type"`
 }
 
-// BiddingError 竞价错误
-type BiddingError struct {
+// Error BiddingError 竞价错误
+type Error struct {
 	message string
 }
 
 // NewBiddingError 创建新的竞价错误
-func NewBiddingError(message string) *BiddingError {
-	return &BiddingError{message: message}
+func NewBiddingError(message string) *Error {
+	return &Error{message: message}
 }
 
 // Error 实现 error 接口
-func (e *BiddingError) Error() string {
+func (e *Error) Error() string {
 	return e.message
 }

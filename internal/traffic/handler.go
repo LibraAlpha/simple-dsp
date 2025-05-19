@@ -4,26 +4,26 @@
  * File: handler.go
  * Project: simple-dsp
  * Description: 流量处理器，负责处理广告请求和响应
- * 
+ *
  * 主要功能:
  * - 处理广告请求
  * - 调用RTA服务
  * - 执行竞价流程
  * - 返回广告响应
- * 
+ *
  * 实现细节:
  * - 使用gin框架处理HTTP请求
  * - 实现请求参数验证
  * - 支持请求限流控制
  * - 提供性能监控
- * 
+ *
  * 依赖关系:
  * - github.com/gin-gonic/gin
  * - simple-dsp/internal/bidding
  * - simple-dsp/internal/rta
  * - simple-dsp/pkg/metrics
  * - simple-dsp/pkg/logger
- * 
+ *
  * 注意事项:
  * - 注意请求处理的性能
  * - 合理设置超时控制
@@ -95,7 +95,7 @@ type Handler struct {
 	eventHandler  *event.Handler
 	logger        *logger.Logger
 	metrics       *metrics.Metrics
-	limiter       *Limiter
+	//limiter       *Limiter
 }
 
 // NewHandler 创建新的流量处理器
@@ -105,7 +105,7 @@ func NewHandler(
 	eventHandler *event.Handler,
 	logger *logger.Logger,
 	metrics *metrics.Metrics,
-	limiter *Limiter,
+	// limiter *Limiter,
 ) *Handler {
 	return &Handler{
 		rtaClient:     rtaClient,
@@ -113,7 +113,7 @@ func NewHandler(
 		eventHandler:  eventHandler,
 		logger:        logger,
 		metrics:       metrics,
-		limiter:       limiter,
+		//limiter:       limiter,
 	}
 }
 
@@ -154,18 +154,18 @@ func (h *Handler) HandleRequest(c *gin.Context) {
 		"user_agent", c.GetHeader("User-Agent"))
 
 	// 限流检查
-	if !h.limiter.Allow() {
-		h.logger.Warn("请求被限流",
-			"request_id", requestID,
-			"remote_addr", c.ClientIP())
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "服务繁忙，请稍后重试"})
-		return
-	}
+	//if !h.limiter.Allow() {
+	//	h.logger.Warn("请求被限流",
+	//		"request_id", requestID,
+	//		"remote_addr", c.ClientIP())
+	//	c.JSON(http.StatusTooManyRequests, gin.H{"error": "服务繁忙，请稍后重试"})
+	//	return
+	//}
 
 	defer func() {
 		// 记录请求处理时间
 		duration := time.Since(startTime)
-		h.metrics.RequestDuration.Observe(duration.Seconds())
+		h.metrics.HTTP.RequestDuration.Observe(duration.Seconds())
 		h.logger.Info("请求处理完成",
 			"request_id", requestID,
 			"duration_ms", duration.Milliseconds())

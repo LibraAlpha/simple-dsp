@@ -91,6 +91,7 @@ func (r *MySQLRepository) ListBidStrategies(ctx context.Context, filter BidStrat
 		ORDER BY id DESC 
 		LIMIT ? OFFSET ?
 	`, where)
+
 	args = append(args, filter.PageSize, offset)
 
 	var strategies []BidStrategy
@@ -99,13 +100,13 @@ func (r *MySQLRepository) ListBidStrategies(ctx context.Context, filter BidStrat
 	}
 
 	// 获取关联的素材
-	for i := range strategies {
-		creatives, err := r.ListCreatives(ctx, strategies[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		strategies[i].Creatives = creatives
-	}
+	//for i := range strategies {
+	//	creatives, err := r.ListCreatives(ctx, strategies[i].ID)
+	//	if err != nil {
+	//		return nil, 0, err
+	//	}
+	//	//strategies[i].Creatives = creatives
+	//}
 
 	return strategies, total, nil
 }
@@ -122,11 +123,11 @@ func (r *MySQLRepository) GetBidStrategy(ctx context.Context, id int64) (*BidStr
 	}
 
 	// 获取关联的素材
-	creatives, err := r.ListCreatives(ctx, strategy.ID)
-	if err != nil {
-		return nil, err
-	}
-	strategy.Creatives = creatives
+	//creatives, err := r.ListCreatives(ctx, strategy.ID)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//strategy.Creatives = creatives
 
 	return &strategy, nil
 }
