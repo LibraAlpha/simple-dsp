@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"simple-dsp/pkg/metrics"
@@ -58,14 +59,14 @@ func Metrics(m *metrics.Metrics) gin.HandlerFunc {
 		m.HTTP.RequestDuration.WithLabelValues(
 			c.Request.Method,
 			path,
-			string(c.Writer.Status()),
+			strconv.Itoa(c.Writer.Status()),
 		).Observe(time.Since(start).Seconds())
 
 		// 记录请求总数
 		m.HTTP.RequestTotal.WithLabelValues(
 			c.Request.Method,
 			path,
-			string(c.Writer.Status()),
+			strconv.Itoa(c.Writer.Status()),
 		).Inc()
 	}
 }
