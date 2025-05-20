@@ -2,12 +2,15 @@ package grpc_test
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
 	pb "simple-dsp/api/proto/dsp/v1"
 	"simple-dsp/internal/bidding"
 	"simple-dsp/pkg/logger"
+
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -19,8 +22,8 @@ var lis *bufconn.Listener
 func init() {
 	lis = bufconn.Listen(bufSize)
 	s := grpc.NewServer()
-	engine := bidding.NewEngine(nil, nil, nil, logger.NewLogger(), nil)
-	pb.RegisterBidServiceServer(s, bidding.NewGRPCServer(engine, logger.NewLogger()))
+	engine := bidding.NewEngine(nil, nil, nil, logger.NewLogger(zap.NewNop()), nil)
+	pb.RegisterBidServiceServer(s, bidding.NewGRPCServer(engine, logger.NewLogger(zap.NewNop())))
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			panic(err)
@@ -41,7 +44,7 @@ func TestBidService_ProcessBid(t *testing.T) {
 	defer conn.Close()
 
 	client := pb.NewBidServiceClient(conn)
-	
+
 	tests := []struct {
 		name    string
 		request *pb.BidRequest
@@ -51,19 +54,19 @@ func TestBidService_ProcessBid(t *testing.T) {
 			name: "基本竞价请求测试",
 			request: &pb.BidRequest{
 				RequestId: "test-123",
-				UserId:   "user-123",
-				DeviceId: "device-123",
-				Ip:       "127.0.0.1",
+				UserId:    "user-123",
+				DeviceId:  "device-123",
+				Ip:        "127.0.0.1",
 				AdSlots: []*pb.AdSlot{
 					{
-						SlotId:    "slot-123",
-						Width:     300,
-						Height:    250,
-						MinPrice:  1.0,
-						MaxPrice:  10.0,
-						Position:  "banner",
-						AdType:    "display",
-						BidType:   "CPM",
+						SlotId:   "slot-123",
+						Width:    300,
+						Height:   250,
+						MinPrice: 1.0,
+						MaxPrice: 10.0,
+						Position: "banner",
+						AdType:   "display",
+						BidType:  "CPM",
 					},
 				},
 			},
@@ -86,4 +89,4 @@ func TestBidService_ProcessBid(t *testing.T) {
 			}
 		})
 	}
-} 
+}

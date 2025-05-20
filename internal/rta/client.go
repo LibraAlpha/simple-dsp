@@ -4,24 +4,24 @@
  * File: client.go
  * Project: simple-dsp
  * Description: RTA服务客户端，负责与实时竞价服务交互
- * 
+ *
  * 主要功能:
  * - 调用RTA服务进行用户定向
  * - 处理RTA服务响应
  * - 实现请求重试机制
  * - 提供性能监控
- * 
+ *
  * 实现细节:
  * - 使用HTTP客户端调用RTA服务
  * - 实现请求签名验证
  * - 支持请求超时控制
  * - 提供性能指标收集
- * 
+ *
  * 依赖关系:
  * - net/http
  * - simple-dsp/pkg/metrics
  * - simple-dsp/pkg/logger
- * 
+ *
  * 注意事项:
  * - 注意处理服务超时
  * - 合理设置重试策略
@@ -32,6 +32,7 @@
 package rta
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -39,9 +40,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickmn/go-cache"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/patrickmn/go-cache"
 )
 
 const (
@@ -221,7 +223,7 @@ func (c *Client) doRequest(ctx context.Context, url string, params map[string]st
 func (c *Client) CheckTargeting(ctx context.Context, userID string) (bool, error) {
 	startTime := time.Now()
 	defer func() {
-		c.metrics.RTACheckDuration.Observe(time.Since(startTime).Seconds())
+		c.metrics.RTA.CheckDuration.Observe(time.Since(startTime).Seconds())
 	}()
 
 	// 构造请求URL
@@ -275,7 +277,7 @@ func (c *Client) CheckTargeting(ctx context.Context, userID string) (bool, error
 func (c *Client) BatchCheckTargeting(ctx context.Context, userIDs []string) (map[string]bool, error) {
 	startTime := time.Now()
 	defer func() {
-		c.metrics.RTABatchCheckDuration.Observe(time.Since(startTime).Seconds())
+		c.metrics.RTA.BatchCheckDuration.Observe(time.Since(startTime).Seconds())
 	}()
 
 	// 构造请求体
@@ -340,4 +342,46 @@ func (c *Client) BatchCheckTargeting(ctx context.Context, userIDs []string) (map
 	}
 
 	return result.Data.Results, nil
+}
+
+// RTARequest RTA请求结构
+type RTARequest struct {
+	DeviceID  string `json:"device_id"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// RTAResponse RTA响应结构
+type RTAResponse struct {
+	Participate   bool    `json:"participate"`
+	BaseBid       float64 `json:"base_bid"`
+	BidMultiplier float64 `json:"bid_multiplier"`
+}
+
+// postRTA 发送RTA请求
+func (c *Client) postRTA(req RTARequest) (*RTAResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/rta/evaluate", c.baseURL)
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result RTAResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }

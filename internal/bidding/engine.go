@@ -34,6 +34,7 @@ package bidding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
@@ -89,6 +90,25 @@ type BudgetManager interface {
 type FrequencyController interface {
 	CheckImpression(ctx context.Context, userID, adID string) (bool, error)
 	RecordImpression(ctx context.Context, userID, adID string) error
+}
+
+var (
+	globalEngine *Engine
+	engineMu     sync.RWMutex
+)
+
+// SetEngine 设置全局引擎实例
+func SetEngine(engine *Engine) {
+	engineMu.Lock()
+	defer engineMu.Unlock()
+	globalEngine = engine
+}
+
+// GetEngine 获取全局引擎实例
+func GetEngine() *Engine {
+	engineMu.RLock()
+	defer engineMu.RUnlock()
+	return globalEngine
 }
 
 // NewEngine 创建新的竞价引擎
@@ -238,4 +258,13 @@ func (e *Engine) calculateBidPrice(strategy BidStrategy, slot AdSlot) float64 {
 func (e *Engine) estimateCTR(strategy BidStrategy, userID string, slot AdSlot) float64 {
 	// TODO: 实现更复杂的CTR预估逻辑
 	return 0.01
+}
+
+// ProcessBid 处理竞价请求
+func ProcessBid(req BidRequest) (*BidResponse, error) {
+	engine := GetEngine()
+	if engine == nil {
+		return nil, errors.New("竞价引擎未初始化")
+	}
+	return engine.ProcessBid(context.Background(), req)
 }

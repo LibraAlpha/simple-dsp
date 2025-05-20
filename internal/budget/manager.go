@@ -4,24 +4,24 @@
  * File: manager.go
  * Project: simple-dsp
  * Description: 预算管理器实现，负责广告预算的控制和管理
- * 
+ *
  * 主要功能:
  * - 管理广告主预算
  * - 控制预算消耗
  * - 提供预算查询接口
  * - 实现预算预警
- * 
+ *
  * 实现细节:
  * - 使用Redis存储预算数据
  * - 实现原子预算扣减
  * - 支持多级预算控制
  * - 提供预算统计功能
- * 
+ *
  * 依赖关系:
  * - simple-dsp/pkg/clients
  * - simple-dsp/pkg/metrics
  * - simple-dsp/pkg/logger
- * 
+ *
  * 注意事项:
  * - 确保预算扣减的原子性
  * - 注意处理并发访问
@@ -33,12 +33,13 @@ package budget
 
 import (
 	"context"
-	"simple-dsp/pkg/clients"
 	"sync"
 	"time"
 
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // Type BudgetType 预算类型
@@ -70,11 +71,11 @@ type Manager struct {
 	mu          sync.RWMutex
 	logger      *logger.Logger
 	metrics     *metrics.Metrics
-	redisClient *clients.GoRedisAdapter
+	redisClient *redis.Client
 }
 
 // NewManager 创建新的预算管理器
-func NewManager(redisClient *clients.GoRedisAdapter, logger *logger.Logger, metrics *metrics.Metrics) *Manager {
+func NewManager(redisClient *redis.Client, logger *logger.Logger, metrics *metrics.Metrics) *Manager {
 	return &Manager{
 		budgets:     make(map[string]*Budget),
 		logger:      logger,
@@ -151,8 +152,8 @@ func (m *Manager) CheckAndDeduct(ctx context.Context, budgetID string, amount fl
 	// 使用Redis进行原子性扣除
 	key := getBudgetKey(budgetID)
 
-	newSpent, err := m.redisClient.IncrBy(ctx, key, int64(amount*100)) // 转换为分
-	if err != nil {
+	newSpent := m.redisClient.IncrBy(ctx, key, int64(amount*100)).Val() // 转换为分
+	if err := m.redisClient.IncrBy(ctx, key, int64(amount*100)).Err(); err != nil {
 		m.logger.Error("扣除预算失败", "error", err, "budget_id", budgetID)
 		return false, err
 	}

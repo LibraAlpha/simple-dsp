@@ -35,26 +35,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
 	"sync"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/spf13/viper"
 )
 
 // Config 全局配置结构
 type Config struct {
-	Server  ServerConfig  `mapstructure:"server"`
-	Traffic TrafficConfig `mapstructure:"traffic"`
-	RTA     RTAConfig     `mapstructure:"rta"`
-	Bidding BiddingConfig `mapstructure:"bidding"`
-	Budget  BudgetConfig  `mapstructure:"budget"`
-	Stats   StatsConfig   `mapstructure:"stats"`
-	Event   EventConfig   `mapstructure:"event"`
-	Redis   RedisConfig   `mapstructure:"redis"`
-	Kafka   KafkaConfig   `mapstructure:"kafka"`
-	Log     LogConfig     `mapstructure:"log"`
-	Metrics MetricsConfig `mapstructure:"metrics"`
+	Server   ServerConfig   `mapstructure:"server"`
+	Traffic  TrafficConfig  `mapstructure:"traffic"`
+	RTA      RTAConfig      `mapstructure:"rta"`
+	Bidding  BiddingConfig  `mapstructure:"bidding"`
+	Budget   BudgetConfig   `mapstructure:"budget"`
+	Stats    StatsConfig    `mapstructure:"stats"`
+	Event    EventConfig    `mapstructure:"event"`
+	Redis    RedisConfig    `mapstructure:"redis"`
+	Kafka    KafkaConfig    `mapstructure:"kafka"`
+	Log      LogConfig      `mapstructure:"log"`
+	Metrics  MetricsConfig  `mapstructure:"metrics"`
+	Postgres PostgresConfig `mapstructure:"postgres"`
 }
 
 // ServerConfig 服务器配置
@@ -176,6 +177,20 @@ type MetricsConfig struct {
 	HTTPEnabled bool   `mapstructure:"http_enabled"`
 }
 
+// PostgresConfig PostgreSQL配置
+type PostgresConfig struct {
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	User            string        `yaml:"user"`
+	Password        string        `yaml:"password"`
+	DBName          string        `yaml:"dbname"`
+	SSLMode         string        `yaml:"sslmode"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time"`
+}
+
 var (
 	// GlobalConfig 全局配置实例
 	GlobalConfig Config
@@ -241,16 +256,14 @@ func GetConfig() *Config {
 // DynamicConfig 动态配置管理器
 type DynamicConfig struct {
 	redis   *redis.Client
-	logger  *zap.Logger
 	configs map[string]interface{}
 	mu      sync.RWMutex
 }
 
 // NewDynamicConfig 创建动态配置管理器
-func NewDynamicConfig(redis *redis.Client, logger *zap.Logger) *DynamicConfig {
+func NewDynamicConfig(redis *redis.Client) *DynamicConfig {
 	dc := &DynamicConfig{
 		redis:   redis,
-		logger:  logger,
 		configs: make(map[string]interface{}),
 	}
 
@@ -306,7 +319,6 @@ func (dc *DynamicConfig) watchConfigChanges() {
 		}
 
 		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
-			dc.logger.Error("解析配置变更事件失败", zap.Error(err))
 			continue
 		}
 
@@ -377,4 +389,121 @@ func (dc *DynamicConfig) getDefaultConfig(key string) interface{} {
 	default:
 		return nil
 	}
+}
+
+// Service 配置服务
+type Service struct {
+	config        *Config
+	dynamicConfig *DynamicConfig
+	redis         *redis.Client
+	mu            sync.RWMutex
+}
+
+// NewService 创建配置服务实例
+func NewService(redis *redis.Client) *Service {
+	return &Service{
+		config:        &GlobalConfig,
+		dynamicConfig: NewDynamicConfig(redis),
+		redis:         redis,
+	}
+}
+
+// GetConfig 获取全局配置
+func (s *Service) GetConfig() *Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config
+}
+
+// GetDynamicConfig 获取动态配置管理器
+func (s *Service) GetDynamicConfig() *DynamicConfig {
+	return s.dynamicConfig
+}
+
+// UpdateConfig 更新配置
+func (s *Service) UpdateConfig(newConfig *Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := validateConfig(newConfig); err != nil {
+		return fmt.Errorf("配置验证失败: %w", err)
+	}
+
+	s.config = newConfig
+	return nil
+}
+
+// GetRedis 获取Redis客户端
+func (s *Service) GetRedis() *redis.Client {
+	return s.redis
+}
+
+// GetMetrics 获取监控指标配置
+func (s *Service) GetMetrics() *MetricsConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Metrics
+}
+
+// GetRTA 获取RTA配置
+func (s *Service) GetRTA() *RTAConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.RTA
+}
+
+// GetTraffic 获取流量配置
+func (s *Service) GetTraffic() *TrafficConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Traffic
+}
+
+// GetBidding 获取竞价配置
+func (s *Service) GetBidding() *BiddingConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Bidding
+}
+
+// GetBudget 获取预算配置
+func (s *Service) GetBudget() *BudgetConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Budget
+}
+
+// GetStats 获取统计配置
+func (s *Service) GetStats() *StatsConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Stats
+}
+
+// GetEvent 获取事件配置
+func (s *Service) GetEvent() *EventConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Event
+}
+
+// GetKafka 获取Kafka配置
+func (s *Service) GetKafka() *KafkaConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Kafka
+}
+
+// GetLog 获取日志配置
+func (s *Service) GetLog() *LogConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Log
+}
+
+// GetPostgres 获取PostgreSQL配置
+func (s *Service) GetPostgres() *PostgresConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return &s.config.Postgres
 }

@@ -6,15 +6,18 @@ import (
 
 	"simple-dsp/internal/bidding"
 	"simple-dsp/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
 func TestEngine_ProcessBid(t *testing.T) {
+
 	// 创建测试引擎
 	engine := bidding.NewEngine(
 		nil, // 这里可以传入mock的repository
 		nil, // mock的预算管理器
 		nil, // mock的频次控制器
-		logger.NewLogger(),
+		logger.NewLogger(zap.NewNop()),
 		nil, // mock的指标收集器
 	)
 
@@ -32,14 +35,14 @@ func TestEngine_ProcessBid(t *testing.T) {
 				IP:        "127.0.0.1",
 				AdSlots: []bidding.AdSlot{
 					{
-						SlotID:    "slot-123",
-						Width:     300,
-						Height:    250,
-						MinPrice:  1.0,
-						MaxPrice:  10.0,
-						Position:  "banner",
-						AdType:    "display",
-						BidType:   "CPM",
+						SlotID:   "slot-123",
+						Width:    300,
+						Height:   250,
+						MinPrice: 1.0,
+						MaxPrice: 10.0,
+						Position: "banner",
+						AdType:   "display",
+						BidType:  "CPM",
 					},
 				},
 			},
@@ -70,4 +73,4 @@ func TestEngine_ProcessBid(t *testing.T) {
 			}
 		})
 	}
-} 
+}

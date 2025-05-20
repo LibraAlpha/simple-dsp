@@ -3,14 +3,17 @@ package creative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"path/filepath"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"simple-dsp/internal/creative/storage"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // Service 素材管理服务
@@ -18,23 +21,23 @@ type Service struct {
 	redis   *redis.Client
 	logger  *logger.Logger
 	metrics *metrics.Metrics
-	storage Storage
+	storage storage.Storage
 }
 
 // Creative 素材信息
 type Creative struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
-	Type        string    `json:"type"`          // image, video, html
-	Format      string    `json:"format"`        // jpg, png, mp4, etc.
-	Size        int64     `json:"size"`          // 文件大小
-	Width       int       `json:"width"`         // 宽度
-	Height      int       `json:"height"`        // 高度
-	Duration    float64   `json:"duration"`      // 视频时长
-	URL         string    `json:"url"`           // 访问URL
-	StoragePath string    `json:"storage_path"`  // 存储路径
-	Tags        []string  `json:"tags"`          // 标签
-	Status      string    `json:"status"`        // active, inactive, deleted
+	Type        string    `json:"type"`         // image, video, html
+	Format      string    `json:"format"`       // jpg, png, mp4, etc.
+	Size        int64     `json:"size"`         // 文件大小
+	Width       int       `json:"width"`        // 宽度
+	Height      int       `json:"height"`       // 高度
+	Duration    float64   `json:"duration"`     // 视频时长
+	URL         string    `json:"url"`          // 访问URL
+	StoragePath string    `json:"storage_path"` // 存储路径
+	Tags        []string  `json:"tags"`         // 标签
+	Status      string    `json:"status"`       // active, inactive, deleted
 	CreateTime  time.Time `json:"create_time"`
 	UpdateTime  time.Time `json:"update_time"`
 }
@@ -51,7 +54,7 @@ type CreativeGroup struct {
 }
 
 // NewService 创建素材管理服务
-func NewService(redis *redis.Client, logger *logger.Logger, metrics *metrics.Metrics, storage Storage) *Service {
+func NewService(redis *redis.Client, logger *logger.Logger, metrics *metrics.Metrics, storage storage.Storage) *Service {
 	return &Service{
 		redis:   redis,
 		logger:  logger,
@@ -105,8 +108,8 @@ func (s *Service) UploadCreative(ctx context.Context, file *multipart.FileHeader
 	}
 
 	// 更新指标
-	s.metrics.CreativeUploaded.Inc()
-	s.metrics.CreativeSize.Observe(float64(size))
+	s.metrics.Creative.Uploaded.Inc()
+	s.metrics.Creative.Size.Observe(float64(size))
 
 	return creative, nil
 }
@@ -134,7 +137,7 @@ func (s *Service) DeleteCreative(ctx context.Context, id string) error {
 	}
 
 	// 更新指标
-	s.metrics.CreativeDeleted.Inc()
+	s.metrics.Creative.Deleted.Inc()
 
 	return nil
 }
@@ -145,7 +148,7 @@ func (s *Service) GetCreative(ctx context.Context, id string) (*Creative, error)
 	data, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
-			return nil, ErrCreativeNotFound
+			return nil, errors.New("素材不存在")
 		}
 		return nil, err
 	}
@@ -218,7 +221,7 @@ func (s *Service) CreateGroup(ctx context.Context, group *CreativeGroup) error {
 	}
 
 	// 更新指标
-	s.metrics.CreativeGroupCreated.Inc()
+	s.metrics.Creative.GroupCreated.Inc()
 
 	return nil
 }
@@ -261,7 +264,7 @@ func (s *Service) DeleteGroup(ctx context.Context, id string) error {
 	}
 
 	// 更新指标
-	s.metrics.CreativeGroupDeleted.Inc()
+	s.metrics.Creative.GroupDeleted.Inc()
 
 	return nil
 }
@@ -272,7 +275,7 @@ func (s *Service) GetGroup(ctx context.Context, id string) (*CreativeGroup, erro
 	data, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
-			return nil, ErrGroupNotFound
+			return nil, errors.New("素材组不存在")
 		}
 		return nil, err
 	}
@@ -360,4 +363,4 @@ func getCreativeType(format string) string {
 
 func generateID() string {
 	return fmt.Sprintf("%d%06d", time.Now().Unix(), time.Now().Nanosecond()/1000)
-} 
+}

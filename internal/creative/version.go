@@ -3,11 +3,14 @@ package creative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"simple-dsp/internal/creative/storage"
 	"simple-dsp/pkg/logger"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // Version 素材版本
@@ -26,11 +29,11 @@ type Version struct {
 type VersionService struct {
 	redis   *redis.Client
 	logger  *logger.Logger
-	storage Storage
+	storage storage.Storage
 }
 
 // NewVersionService 创建版本控制服务
-func NewVersionService(redis *redis.Client, logger *logger.Logger, storage Storage) *VersionService {
+func NewVersionService(redis *redis.Client, logger *logger.Logger, storage storage.Storage) *VersionService {
 	return &VersionService{
 		redis:   redis,
 		logger:  logger,
@@ -72,7 +75,7 @@ func (vs *VersionService) GetVersion(ctx context.Context, creativeID string, ver
 	data, err := vs.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
-			return nil, ErrVersionNotFound
+			return nil, errors.New("版本不存在")
 		}
 		return nil, err
 	}

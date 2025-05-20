@@ -8,7 +8,7 @@ import (
 
 // GRPCServer 实现 gRPC 服务
 type GRPCServer struct {
-	pb.UnimplementedBidServiceServer
+	pb.BidServiceServer
 	engine *Engine
 	logger *logger.Logger
 }
@@ -35,14 +35,14 @@ func (s *GRPCServer) ProcessBid(ctx context.Context, req *pb.BidRequest) (*pb.Bi
 	// 转换广告位信息
 	for _, slot := range req.AdSlots {
 		bidReq.AdSlots = append(bidReq.AdSlots, AdSlot{
-			SlotID:    slot.SlotId,
-			Width:     int(slot.Width),
-			Height:    int(slot.Height),
-			MinPrice:  slot.MinPrice,
-			MaxPrice:  slot.MaxPrice,
-			Position:  slot.Position,
-			AdType:    slot.AdType,
-			BidType:   slot.BidType,
+			SlotID:   slot.SlotId,
+			Width:    int(slot.Width),
+			Height:   int(slot.Height),
+			MinPrice: slot.MinPrice,
+			MaxPrice: slot.MaxPrice,
+			Position: slot.Position,
+			AdType:   slot.AdType,
+			BidType:  slot.BidType,
 		})
 	}
 
@@ -57,7 +57,7 @@ func (s *GRPCServer) ProcessBid(ctx context.Context, req *pb.BidRequest) (*pb.Bi
 
 	// 转换响应格式
 	pbResp := &pb.BidResponse{
-		RequestId: resp.RequestID,
+		RequestId: req.RequestId,
 		Version:   "1.0",
 		Ads: []*pb.AdResponse{
 			{
@@ -67,7 +67,7 @@ func (s *GRPCServer) ProcessBid(ctx context.Context, req *pb.BidRequest) (*pb.Bi
 				BidType:     resp.BidType,
 				AdMarkup:    resp.AdMarkup,
 				WinNotice:   resp.WinNotice,
-				ClickNotice: resp.WinNotice, // 使用相同的通知URL
+				ClickNotice: resp.WinNotice,           // 使用相同的通知URL
 				ImpNotice:   []string{resp.WinNotice}, // 使用相同的通知URL
 			},
 		},
@@ -78,4 +78,4 @@ func (s *GRPCServer) ProcessBid(ctx context.Context, req *pb.BidRequest) (*pb.Bi
 		"bid_price", resp.BidPrice)
 
 	return pbResp, nil
-} 
+}

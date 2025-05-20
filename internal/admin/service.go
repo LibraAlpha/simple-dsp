@@ -9,10 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 
-	"simple-dsp/internal/bidding"
 	"simple-dsp/internal/budget"
-	"simple-dsp/internal/stats"
 	"simple-dsp/internal/frequency"
+	"simple-dsp/internal/stats"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
 )
@@ -389,10 +388,10 @@ func (s *Service) GetSystemStatus(c *gin.Context) {
 }
 
 // GetSystemMetrics 获取系统指标
-func (s *Service) GetSystemMetrics(c *gin.Context) {
-	metrics := s.metrics.GetMetrics()
-	c.JSON(http.StatusOK, metrics)
-}
+// func (s *Service) GetSystemMetrics(c *gin.Context) {
+// 	metrics := s.metrics.GetMetrics()
+// 	c.JSON(http.StatusOK, metrics)
+// }
 
 // UpdateFrequencyConfig 更新频次控制配置
 func (s *Service) UpdateFrequencyConfig(c *gin.Context) {
@@ -564,4 +563,4 @@ func randomString(n int) string {
 		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
 	}
 	return string(b)
-} 
+}

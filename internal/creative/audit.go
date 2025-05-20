@@ -3,42 +3,45 @@ package creative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"simple-dsp/internal/creative/storage"
 	"simple-dsp/pkg/logger"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // AuditStatus 审核状态
 type AuditStatus string
 
 const (
-	AuditStatusPending   AuditStatus = "pending"
-	AuditStatusApproved  AuditStatus = "approved"
-	AuditStatusRejected  AuditStatus = "rejected"
-	AuditStatusRevision  AuditStatus = "revision"
+	AuditStatusPending  AuditStatus = "pending"
+	AuditStatusApproved AuditStatus = "approved"
+	AuditStatusRejected AuditStatus = "rejected"
+	AuditStatusRevision AuditStatus = "revision"
 )
 
 // AuditRecord 审核记录
 type AuditRecord struct {
-	ID          string      `json:"id"`
-	CreativeID  string      `json:"creative_id"`
-	Status      AuditStatus `json:"status"`
-	Reviewer    string      `json:"reviewer"`
-	Comments    string      `json:"comments"`
-	CreateTime  time.Time   `json:"create_time"`
-	UpdateTime  time.Time   `json:"update_time"`
+	ID         string      `json:"id"`
+	CreativeID string      `json:"creative_id"`
+	Status     AuditStatus `json:"status"`
+	Reviewer   string      `json:"reviewer"`
+	Comments   string      `json:"comments"`
+	CreateTime time.Time   `json:"create_time"`
+	UpdateTime time.Time   `json:"update_time"`
 }
 
 // AuditService 审核服务
 type AuditService struct {
 	redis   *redis.Client
 	logger  *logger.Logger
-	storage Storage
+	storage storage.Storage
 }
 
 // NewAuditService 创建审核服务
-func NewAuditService(redis *redis.Client, logger *logger.Logger, storage Storage) *AuditService {
+func NewAuditService(redis *redis.Client, logger *logger.Logger, storage storage.Storage) *AuditService {
 	return &AuditService{
 		redis:   redis,
 		logger:  logger,
@@ -85,7 +88,7 @@ func (as *AuditService) GetLatestAuditRecord(ctx context.Context, creativeID str
 	data, err := as.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
-			return nil, ErrAuditRecordNotFound
+			return nil, errors.New("audit record not found")
 		}
 		return nil, err
 	}
@@ -164,4 +167,4 @@ func (as *AuditService) getAuditKey(creativeID string) string {
 
 func (as *AuditService) getAuditHistoryKey(creativeID string) string {
 	return "creative:audit:history:" + creativeID
-} 
+}

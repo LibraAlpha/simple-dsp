@@ -140,3 +140,8 @@ func validateConfig(config *Config) error {
 
 	return nil
 }
+
+// ValidateConfig 验证配置
+func ValidateConfig(config *Config) error {
+	return validateConfig(config)
+}

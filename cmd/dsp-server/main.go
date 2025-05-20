@@ -35,7 +35,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"net/http"
 	"os"
 	"os/signal"
@@ -43,8 +42,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/segmentio/kafka-go"
+	"github.com/go-redis/redis/v8"
+
 	"simple-dsp/internal/bidding"
 	"simple-dsp/internal/budget"
 	"simple-dsp/internal/event"
@@ -55,6 +54,9 @@ import (
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/gin-gonic/gin"
+	"github.com/segmentio/kafka-go"
 )
 
 func main() {

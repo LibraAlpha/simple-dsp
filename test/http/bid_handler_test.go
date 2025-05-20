@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"simple-dsp/internal/bidding"
 	"simple-dsp/pkg/logger"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func TestBidHandler_ProcessBid(t *testing.T) {
@@ -18,15 +20,15 @@ func TestBidHandler_ProcessBid(t *testing.T) {
 
 	// 创建路由
 	router := gin.New()
-	engine := bidding.NewEngine(nil, nil, nil, logger.NewLogger(), nil)
-	
+	engine := bidding.NewEngine(nil, nil, nil, logger.NewLogger(zap.NewNop()), nil)
+
 	// 注册路由
 	router.POST("/bid", func(c *gin.Context) {
 		var req struct {
-			RequestID string          `json:"request_id"`
-			UserID    string          `json:"user_id"`
-			DeviceID  string          `json:"device_id"`
-			IP        string          `json:"ip"`
+			RequestID string           `json:"request_id"`
+			UserID    string           `json:"user_id"`
+			DeviceID  string           `json:"device_id"`
+			IP        string           `json:"ip"`
 			AdSlots   []bidding.AdSlot `json:"ad_slots"`
 		}
 
@@ -66,14 +68,14 @@ func TestBidHandler_ProcessBid(t *testing.T) {
 				"ip":         "127.0.0.1",
 				"ad_slots": []map[string]interface{}{
 					{
-						"slot_id":    "slot-123",
-						"width":      300,
-						"height":     250,
-						"min_price":  1.0,
-						"max_price":  10.0,
-						"position":   "banner",
-						"ad_type":    "display",
-						"bid_type":   "CPM",
+						"slot_id":   "slot-123",
+						"width":     300,
+						"height":    250,
+						"min_price": 1.0,
+						"max_price": 10.0,
+						"position":  "banner",
+						"ad_type":   "display",
+						"bid_type":  "CPM",
 					},
 				},
 			},
@@ -97,7 +99,7 @@ func TestBidHandler_ProcessBid(t *testing.T) {
 
 			req := httptest.NewRequest("POST", "/bid", bytes.NewBuffer(jsonData))
 			req.Header.Set("Content-Type", "application/json")
-			
+
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
@@ -106,4 +108,4 @@ func TestBidHandler_ProcessBid(t *testing.T) {
 			}
 		})
 	}
-} 
+}

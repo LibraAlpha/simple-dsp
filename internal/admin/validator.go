@@ -3,6 +3,7 @@ package admin
 import (
 	"net/url"
 	"regexp"
+	"simple-dsp/internal/bidding"
 	"strings"
 	"time"
 )
@@ -151,13 +152,13 @@ func validateAdSlot(slot *bidding.AdSlot) error {
 	if slot == nil {
 		return ErrInvalidRequest
 	}
-	if slot.ID == "" {
+	if slot.SlotID == "" {
 		return ErrInvalidRequest
 	}
 	if slot.Width <= 0 || slot.Height <= 0 {
 		return ErrInvalidRequest
 	}
-	if slot.Price < 0 {
+	if slot.MinPrice < 0 || slot.MaxPrice < 0 {
 		return ErrInvalidRequest
 	}
 	return nil
@@ -167,7 +168,7 @@ func validateBidRequest(req *bidding.BidRequest) error {
 	if req == nil {
 		return ErrInvalidRequest
 	}
-	if req.ID == "" {
+	if req.RequestID == "" {
 		return ErrInvalidRequest
 	}
 	if req.UserID == "" {
@@ -183,7 +184,7 @@ func validateBidRequest(req *bidding.BidRequest) error {
 		return ErrInvalidRequest
 	}
 	for _, slot := range req.AdSlots {
-		if err := validateAdSlot(slot); err != nil {
+		if err := validateAdSlot(&slot); err != nil {
 			return err
 		}
 	}
@@ -208,4 +209,4 @@ func isValidIP(ip string) bool {
 		}
 	}
 	return true
-} 
+}

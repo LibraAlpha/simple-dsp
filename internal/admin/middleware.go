@@ -1,12 +1,15 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
+	"simple-dsp/pkg/logger"
+	"simple-dsp/pkg/metrics"
+
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
-	"simple-dsp/pkg/logger"
 )
 
 // Middleware 中间件接口
@@ -19,9 +22,9 @@ type Middleware interface {
 
 // middleware 中间件实现
 type middleware struct {
-	logger    *logger.Logger
-	limiter   *rate.Limiter
-	metrics   *metrics.Metrics
+	logger  *logger.Logger
+	limiter *rate.Limiter
+	metrics *metrics.Metrics
 }
 
 // NewMiddleware 创建中间件
@@ -99,8 +102,8 @@ func (m *middleware) Logger() gin.HandlerFunc {
 		)
 
 		// 记录指标
-		m.metrics.IncHTTPRequests(method, path, status)
-		m.metrics.ObserveHTTPLatency(method, path, latency)
+		m.metrics.HTTP.RequestTotal.WithLabelValues(method, path, fmt.Sprint(status)).Inc()
+		m.metrics.HTTP.RequestDuration.WithLabelValues(method, path).Observe(latency.Seconds())
 	}
 }
 
@@ -118,7 +121,7 @@ func (m *middleware) Recovery() gin.HandlerFunc {
 				)
 
 				// 记录指标
-				m.metrics.IncPanics()
+				m.metrics.Bid.Errors.Inc()
 
 				// 返回错误响应
 				c.JSON(http.StatusInternalServerError, gin.H{
@@ -131,4 +134,4 @@ func (m *middleware) Recovery() gin.HandlerFunc {
 
 		c.Next()
 	}
-} 
+}

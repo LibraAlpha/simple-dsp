@@ -4,25 +4,25 @@
  * File: postgres.go
  * Project: simple-dsp
  * Description: PostgreSQL客户端封装，提供统一的数据库操作接口
- * 
+ *
  * 主要功能:
  * - 提供统一的PostgreSQL客户端接口定义
  * - 封装数据库查询和事务操作
  * - 支持连接池管理
  * - 提供错误处理和日志记录
- * 
+ *
  * 实现细节:
  * - 使用database/sql标准库实现底层连接
  * - 支持事务和预处理语句
  * - 实现连接池参数配置
  * - 提供标准的数据库操作接口
- * 
+ *
  * 依赖关系:
  * - database/sql
  * - github.com/lib/pq
  * - simple-dsp/pkg/config
  * - simple-dsp/pkg/logger
- * 
+ *
  * 注意事项:
  * - 需要正确配置数据库连接参数
  * - 注意处理连接池资源管理
@@ -38,9 +38,10 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
+
+	_ "github.com/lib/pq"
 )
 
 // PostgresClient PostgreSQL客户端接口
@@ -85,4 +86,4 @@ func NewPostgresClient(cfg config.PostgresConfig, log *logger.Logger) (PostgresC
 
 	log.Info("PostgreSQL连接成功", "host", cfg.Host, "port", cfg.Port)
 	return db, nil
-} 
+}

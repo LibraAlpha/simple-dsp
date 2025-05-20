@@ -1,8 +1,9 @@
 package rta
 
 import (
-	"go.uber.org/zap"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // EvaluateUser 实时用户价值评估
@@ -14,7 +15,7 @@ func (c *Client) EvaluateUser(deviceID string) (bool, float64) {
 
 	resp, err := c.postRTA(req)
 	if err != nil {
-		logger.Error("RTA请求失败", zap.Error(err))
+		c.logger.Error("RTA请求失败", zap.Error(err))
 		return false, 0
 	}
 

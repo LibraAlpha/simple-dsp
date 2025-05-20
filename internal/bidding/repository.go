@@ -158,11 +158,11 @@ func (r *MySQLRepository) CreateBidStrategy(ctx context.Context, strategy *BidSt
 	strategy.ID = strconv.FormatInt(id, 10)
 
 	// 关联素材
-	for _, creative := range strategy.Creatives {
-		if err := r.AddCreative(ctx, id, creative.CreativeID); err != nil {
-			return err
-		}
-	}
+	// for _, creative := range strategy.Creatives {
+	// 	if err := r.AddCreative(ctx, id, creative.CreativeID); err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	return nil
 }

@@ -4,26 +4,28 @@
  * File: main.go
  * Project: simple-dsp
  * Description: 管理后台服务器主程序，提供系统管理和监控功能
- * 
+ *
  * 主要功能:
  * - 提供系统配置管理接口
  * - 提供数据统计和监控接口
  * - 提供预算和频次控制管理
  * - 提供系统状态查询接口
- * 
+ *
  * 实现细节:
  * - 使用gin框架提供HTTP服务
  * - 实现配置的动态管理
  * - 提供实时监控指标
  * - 支持系统状态查询
- * 
+ *
  * 依赖关系:
  * - github.com/gin-gonic/gin
  * - simple-dsp/internal/admin
  * - simple-dsp/internal/budget
+ * - simple-dsp/internal/config
+ * - simple-dsp/internal/frequency
  * - simple-dsp/internal/stats
  * - simple-dsp/pkg/* (所有基础包)
- * 
+ *
  * 注意事项:
  * - 需要正确配置管理权限
  * - 注意保护敏感配置信息
@@ -41,20 +43,22 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gin-gonic/gin"
 	"simple-dsp/internal/admin"
 	"simple-dsp/internal/budget"
+	iconfig "simple-dsp/internal/config"
 	"simple-dsp/internal/frequency"
 	"simple-dsp/internal/stats"
 	"simple-dsp/pkg/clients"
-	"simple-dsp/pkg/config"
+	pkgconfig "simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// 1. 加载配置
-	cfg := config.GetConfig()
+	cfg := pkgconfig.GetConfig()
 
 	// 2. 初始化日志
 	log, err := logger.NewLoggerFromConfig(cfg.Log)
@@ -64,23 +68,20 @@ func main() {
 	defer log.Sync()
 
 	// 3. 初始化监控指标
-	metricsCollector := metrics.NewMetrics(cfg.Metrics.Port, cfg.Metrics.Path)
+	metricsCollector, err := metrics.NewMetrics(cfg.Metrics)
 	if cfg.Metrics.PushGateway != "" {
 		metricsCollector.StartPushGateway(cfg.Metrics.PushGateway)
 	}
 
 	// 4. 初始化Redis客户端
-	redisClient, err := clients.NewRedisClient(cfg.Redis, log)
+	redisClient, err := clients.InitRedis(cfg, log)
 	if err != nil {
 		log.Fatal("初始化Redis客户端失败", "error", err)
 	}
 	defer redisClient.Close()
 
-	// 5. 初始化动态配置管理器
-	dynamicConfig := config.NewDynamicConfig(redisClient, log)
-
 	// 6. 初始化配置管理服务
-	configService := config.NewService(redisClient, log)
+	configService := iconfig.NewService(redisClient, log)
 	configHandler := admin.NewConfigHandler(configService)
 
 	// 7. 初始化各个模块
@@ -117,7 +118,7 @@ func main() {
 	// 8. 初始化HTTP服务器
 	router := initRouter(adminService, configHandler)
 	srv := &http.Server{
-		Addr:           fmt.Sprintf(":%d", cfg.Admin.Port),
+		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:        router,
 		ReadTimeout:    cfg.Server.ReadTimeout,
 		WriteTimeout:   cfg.Server.WriteTimeout,
@@ -126,7 +127,7 @@ func main() {
 
 	// 9. 启动服务器
 	go func() {
-		log.Info("启动管理后台服务器", "port", cfg.Admin.Port)
+		log.Info("启动管理后台服务器", "port", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("管理后台服务器启动失败", "error", err)
 		}
@@ -160,8 +161,7 @@ func initRouter(adminService *admin.Service, configHandler *admin.ConfigHandler)
 		adminGroup.GET("/stats/daily", adminService.GetDailyStats)
 		adminGroup.GET("/stats/hourly", adminService.GetHourlyStats)
 		adminGroup.GET("/system/status", adminService.GetSystemStatus)
-		adminGroup.GET("/system/metrics", adminService.GetSystemMetrics)
 	}
 
 	return router
-} 
+}

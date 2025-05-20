@@ -1,13 +1,15 @@
 package middleware
 
 import (
+	"context"
 	"time"
+
+	"simple-dsp/pkg/metrics"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
-	"simple-dsp/pkg/metrics"
 )
 
 // Logger 日志中间件
@@ -53,14 +55,14 @@ func Metrics(m *metrics.Metrics) gin.HandlerFunc {
 		c.Next()
 
 		// 记录请求延迟
-		m.RequestDuration.WithLabelValues(
+		m.HTTP.RequestDuration.WithLabelValues(
 			c.Request.Method,
 			path,
 			string(c.Writer.Status()),
 		).Observe(time.Since(start).Seconds())
 
 		// 记录请求总数
-		m.RequestTotal.WithLabelValues(
+		m.HTTP.RequestTotal.WithLabelValues(
 			c.Request.Method,
 			path,
 			string(c.Writer.Status()),
@@ -88,13 +90,13 @@ func GRPCMetrics(m *metrics.Metrics) grpc.UnaryServerInterceptor {
 		duration := time.Since(start)
 
 		// 记录gRPC请求延迟
-		m.GRPCRequestDuration.WithLabelValues(
+		m.GRPC.RequestDuration.WithLabelValues(
 			info.FullMethod,
 			errorToCode(err),
 		).Observe(duration.Seconds())
 
 		// 记录gRPC请求总数
-		m.GRPCRequestTotal.WithLabelValues(
+		m.GRPC.RequestTotal.WithLabelValues(
 			info.FullMethod,
 			errorToCode(err),
 		).Inc()
@@ -109,4 +111,4 @@ func errorToCode(err error) string {
 		return "success"
 	}
 	return "error"
-} 
+}

@@ -34,10 +34,11 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"time"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/segmentio/kafka-go"
-	"time"
 
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
@@ -99,7 +100,10 @@ func (c *Collector) CollectEvent(ctx context.Context, event *Event) error {
 
 	// 发送到Kafka
 	topic := getEventTopic(event.EventType)
-	if err := c.kafkaClient.WriteMessages(ctx, kafka.Message{eventBytes}); err != nil {
+	if err := c.kafkaClient.WriteMessages(ctx, kafka.Message{
+		Topic: topic,
+		Value: eventBytes,
+	}); err != nil {
 		c.logger.Error("发送事件到Kafka失败", "error", err, "event_type", event.EventType)
 		return err
 	}
@@ -227,7 +231,10 @@ func getRealtimeCostKey(adID, date string) string {
 // parseInt64 解析字符串为int64
 func parseInt64(s string) int64 {
 	var i int64
-	json.Unmarshal([]byte(s), &i)
+	err := json.Unmarshal([]byte(s), &i)
+	if err != nil {
+		return 0
+	}
 	return i
 }
 

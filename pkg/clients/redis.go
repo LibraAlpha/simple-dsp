@@ -36,9 +36,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"simple-dsp/pkg/config"
 	"simple-dsp/pkg/logger"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // InitRedis initRedis 初始化Redis客户端

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"simple-dsp/pkg/logger"
 	"simple-dsp/pkg/metrics"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // DistributedController 分布式频次控制器
@@ -30,7 +31,7 @@ func NewDistributedController(redis *redis.Client, logger *logger.Logger, metric
 func (dc *DistributedController) CheckFrequency(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	start := time.Now()
 	defer func() {
-		dc.metrics.FrequencyCheckDuration.Observe(time.Since(start).Seconds())
+		dc.metrics.Frequency.CheckDuration.Observe(time.Since(start).Seconds())
 	}()
 
 	// 使用Redis的Sorted Set实现滑动窗口
@@ -39,13 +40,13 @@ func (dc *DistributedController) CheckFrequency(ctx context.Context, key string,
 
 	// 使用Pipeline减少网络往返
 	pipe := dc.redis.Pipeline()
-	
+
 	// 移除窗口外的记录
 	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart))
-	
+
 	// 获取当前窗口内的记录数
 	countCmd := pipe.ZCount(ctx, key, fmt.Sprintf("%d", windowStart), fmt.Sprintf("%d", now))
-	
+
 	// 执行Pipeline
 	_, err := pipe.Exec(ctx)
 	if err != nil {
@@ -57,9 +58,9 @@ func (dc *DistributedController) CheckFrequency(ctx context.Context, key string,
 	allowed := count < int64(limit)
 
 	// 更新指标
-	dc.metrics.FrequencyCheckTotal.Inc()
+	dc.metrics.Frequency.CheckTotal.Inc()
 	if !allowed {
-		dc.metrics.FrequencyLimitExceeded.Inc()
+		dc.metrics.Frequency.LimitExceeded.Inc()
 	}
 
 	return allowed, nil
@@ -69,11 +70,11 @@ func (dc *DistributedController) CheckFrequency(ctx context.Context, key string,
 func (dc *DistributedController) RecordFrequency(ctx context.Context, key string, window time.Duration) error {
 	start := time.Now()
 	defer func() {
-		dc.metrics.FrequencyRecordDuration.Observe(time.Since(start).Seconds())
+		dc.metrics.Frequency.RecordDuration.Observe(time.Since(start).Seconds())
 	}()
 
 	now := time.Now().UnixNano()
-	
+
 	// 添加记录并设置过期时间
 	pipe := dc.redis.Pipeline()
 	pipe.ZAdd(ctx, key, &redis.Z{
@@ -89,7 +90,7 @@ func (dc *DistributedController) RecordFrequency(ctx context.Context, key string
 	}
 
 	// 更新指标
-	dc.metrics.FrequencyRecordTotal.Inc()
+	dc.metrics.Frequency.RecordTotal.Inc()
 
 	return nil
 }
@@ -99,7 +100,7 @@ func (dc *DistributedController) GetFrequencyStats(ctx context.Context, key stri
 	now := time.Now().UnixNano()
 	windowStart := now - window.Nanoseconds()
 
-	count, err := dc.redis.ZCount(ctx, key, 
+	count, err := dc.redis.ZCount(ctx, key,
 		fmt.Sprintf("%d", windowStart),
 		fmt.Sprintf("%d", now)).Result()
 	if err != nil {
@@ -112,4 +113,4 @@ func (dc *DistributedController) GetFrequencyStats(ctx context.Context, key stri
 // ClearFrequency 清除频次记录
 func (dc *DistributedController) ClearFrequency(ctx context.Context, key string) error {
 	return dc.redis.Del(ctx, key).Err()
-} 
+}

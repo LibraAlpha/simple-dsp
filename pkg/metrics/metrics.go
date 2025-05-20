@@ -35,14 +35,16 @@ package metrics
 import (
 	"errors"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/push"
 	"net/http"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/push"
+
+	"simple-dsp/pkg/config"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"simple-dsp/pkg/config"
 )
 
 // 模块化指标定义（网页4）
@@ -113,6 +115,19 @@ type (
 		Cost        *prometheus.CounterVec
 		DailyBudget *prometheus.CounterVec
 	}
+
+	RTAMetrics struct {
+		CheckDuration      prometheus.Histogram
+		BatchCheckDuration prometheus.Histogram
+		Requests           prometheus.Counter
+		Errors             prometheus.Counter
+	}
+
+	TrackingMetrics struct {
+		Duration *prometheus.HistogramVec
+		Success  *prometheus.CounterVec
+		Failure  *prometheus.CounterVec
+	}
 )
 
 type Metrics struct {
@@ -125,6 +140,8 @@ type Metrics struct {
 	Cache     *CacheMetrics
 	Storage   *StorageMetrics
 	Events    *EventMetrics
+	RTA       *RTAMetrics
+	Tracking  *TrackingMetrics
 	server    *http.Server
 }
 
@@ -379,6 +396,43 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 				[]string{"ad_id", "slot_id"},
 			),
 		},
+
+		RTA: &RTAMetrics{
+			CheckDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+				Name:    "dsp_rta_check_duration_seconds",
+				Help:    "RTA检查耗时分布",
+				Buckets: prometheus.DefBuckets,
+			}),
+			BatchCheckDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+				Name:    "dsp_rta_batch_check_duration_seconds",
+				Help:    "RTA批量检查耗时分布",
+				Buckets: prometheus.DefBuckets,
+			}),
+			Requests: promauto.NewCounter(prometheus.CounterOpts{
+				Name: "dsp_rta_requests_total",
+				Help: "RTA请求总数",
+			}),
+			Errors: promauto.NewCounter(prometheus.CounterOpts{
+				Name: "dsp_rta_errors_total",
+				Help: "RTA错误总数",
+			}),
+		},
+
+		Tracking: &TrackingMetrics{
+			Duration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+				Name:    "dsp_tracking_duration_seconds",
+				Help:    "跟踪请求耗时分布",
+				Buckets: prometheus.DefBuckets,
+			}, []string{"event_type"}),
+			Success: promauto.NewCounterVec(prometheus.CounterOpts{
+				Name: "dsp_tracking_success_total",
+				Help: "跟踪请求成功总数",
+			}, []string{"event_type"}),
+			Failure: promauto.NewCounterVec(prometheus.CounterOpts{
+				Name: "dsp_tracking_failure_total",
+				Help: "跟踪请求失败总数",
+			}, []string{"event_type"}),
+		},
 	}
 
 	// 注册全局采集器
@@ -423,6 +477,13 @@ func NewMetrics(cfg config.MetricsConfig) (*Metrics, error) {
 		metrics.Events.Conversions,
 		metrics.Budget.DailyBudget,
 		metrics.Budget.Cost,
+		metrics.RTA.CheckDuration,
+		metrics.RTA.BatchCheckDuration,
+		metrics.RTA.Requests,
+		metrics.RTA.Errors,
+		metrics.Tracking.Duration,
+		metrics.Tracking.Success,
+		metrics.Tracking.Failure,
 	)
 
 	if cfg.HTTPEnabled {
@@ -497,6 +558,13 @@ func (m *Metrics) StartPushGateway(url string) {
 		m.Events.Conversions,
 		m.Budget.DailyBudget,
 		m.Budget.Cost,
+		m.RTA.CheckDuration,
+		m.RTA.BatchCheckDuration,
+		m.RTA.Requests,
+		m.RTA.Errors,
+		m.Tracking.Duration,
+		m.Tracking.Success,
+		m.Tracking.Failure,
 	}
 
 	for _, c := range collectors {
