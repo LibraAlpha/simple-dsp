@@ -6,7 +6,7 @@ ARG POSTGRES_VERSION=13.9-r0
 ARG REDIS_VERSION=6.2.7-r0
 
 # 构建阶段
-FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 
 # 设置构建环境
 ARG ALPINE_MIRROR
